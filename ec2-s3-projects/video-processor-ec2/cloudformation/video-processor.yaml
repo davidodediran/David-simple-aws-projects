@@ -19,8 +19,9 @@ Parameters:
     Description: EC2 instance type
 
   KeyPairName:
-    Type: AWS::EC2::KeyPair::KeyName
-    Description: Existing EC2 key pair for SSH access
+    Type: String
+    Default: ''
+    Description: Existing EC2 key pair for SSH access (leave empty to launch without SSH key)
 
   AmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
@@ -36,6 +37,9 @@ Parameters:
     Type: String
     Default: 0.0.0.0/0
     Description: CIDR block allowed for web UI access on port 5000
+
+Conditions:
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, '']]
 
 Resources:
 
@@ -212,7 +216,7 @@ Resources:
     Properties:
       InstanceType: !Ref InstanceType
       ImageId: !Ref AmiId
-      KeyName: !Ref KeyPairName
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref 'AWS::NoValue']
       IamInstanceProfile: !Ref EC2InstanceProfile
       SubnetId: !Ref PublicSubnet
       SecurityGroupIds:
