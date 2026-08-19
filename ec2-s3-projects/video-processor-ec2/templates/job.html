@@ -8,6 +8,85 @@
     setTimeout(function() { window.location.reload(); }, 3000);
 </script>
 {% endif %}
+<style>
+    .compression-bar {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1.25rem;
+        margin-bottom: 1.5rem;
+    }
+    .compression-bar .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    .compression-bar .size-label {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+    .compression-bar .size-value {
+        font-size: 1.1rem;
+        font-weight: 600;
+    }
+    .compression-bar .arrow {
+        font-size: 1.5rem;
+        color: var(--text-muted);
+    }
+    .compression-bar .savings {
+        font-size: 0.9rem;
+        font-weight: 600;
+        padding: 0.3rem 0.8rem;
+        border-radius: 999px;
+    }
+    .savings-positive {
+        background: #14532d;
+        color: var(--success);
+    }
+    .savings-negative {
+        background: #422006;
+        color: var(--warning);
+    }
+    .progress-bar-track {
+        width: 100%;
+        height: 8px;
+        background: var(--surface-hover);
+        border-radius: 4px;
+        margin-top: 0.75rem;
+        overflow: hidden;
+    }
+    .progress-bar-fill {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.3s;
+    }
+    .output-detail-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-top: 0.3rem;
+    }
+    .detail-chip {
+        display: inline-block;
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        background: var(--surface-hover);
+        color: var(--text-muted);
+    }
+    .detail-chip-format {
+        background: #1e3a5f;
+        color: var(--info);
+    }
+    .detail-chip-size {
+        background: #14532d;
+        color: var(--success);
+    }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -17,7 +96,7 @@
 </div>
 
 <div class="card">
-    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
         <h2 style="margin-bottom: 0;">{{ job.original_filename }}</h2>
         <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
         <span class="mode-tag">{{ job.mode }}</span>
@@ -27,19 +106,56 @@
     <div class="error-box">{{ job.error }}</div>
     {% endif %}
 
+    {# Compression summary bar #}
+    {% if job.status == 'completed' and job.savings_percent is not none %}
+    <div class="compression-bar">
+        <div class="row">
+            <div>
+                <div class="size-label">Original</div>
+                <div class="size-value">{{ job.input_size_display }}</div>
+            </div>
+            <div class="arrow">&rarr;</div>
+            <div>
+                <div class="size-label">Processed Output</div>
+                <div class="size-value">{{ job.total_output_display }}</div>
+            </div>
+            <div>
+                {% if job.savings_percent > 0 %}
+                <span class="savings savings-positive">&darr; {{ job.savings_percent }}% smaller</span>
+                {% elif job.savings_percent < 0 %}
+                <span class="savings savings-negative">&uarr; {{ (job.savings_percent | abs) }}% larger</span>
+                {% else %}
+                <span class="savings" style="background: var(--surface-hover); color: var(--text-muted);">Same size</span>
+                {% endif %}
+            </div>
+        </div>
+        {% if job.savings_percent > 0 %}
+        <div class="progress-bar-track">
+            <div class="progress-bar-fill" style="width: {{ 100 - job.savings_percent }}%; background: var(--success);"></div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
     <div class="stat-grid">
         <div class="stat-box">
-            <div class="value">{{ job.input_size_mb }}</div>
-            <div class="label">Input (MB)</div>
+            <div class="value">{{ job.input_size_display }}</div>
+            <div class="label">Input Size</div>
         </div>
         <div class="stat-box">
-            <div class="value">{{ job.total_output_mb }}</div>
-            <div class="label">Output (MB)</div>
+            <div class="value">{{ job.total_output_display }}</div>
+            <div class="label">Output Size</div>
         </div>
         <div class="stat-box">
             <div class="value">{{ job.outputs | length }}</div>
             <div class="label">Files Generated</div>
         </div>
+        {% if job.compression_ratio %}
+        <div class="stat-box">
+            <div class="value">{{ job.compression_ratio }}x</div>
+            <div class="label">Compression Ratio</div>
+        </div>
+        {% endif %}
         {% if job.metadata %}
         <div class="stat-box">
             <div class="value">{{ "%.1f" | format(job.metadata.duration_seconds) }}s</div>
@@ -47,7 +163,7 @@
         </div>
         <div class="stat-box">
             <div class="value">{{ job.metadata.width }}x{{ job.metadata.height }}</div>
-            <div class="label">Resolution</div>
+            <div class="label">Source Resolution</div>
         </div>
         {% endif %}
     </div>
@@ -70,21 +186,24 @@
 
 {% if job.outputs %}
 <div class="card">
-    <h2>Processed Results ({{ job.outputs | length }} files, {{ job.total_output_mb }} MB total)</h2>
+    <h2>Processed Results ({{ job.outputs | length }} files, {{ job.total_output_display }} total)</h2>
 
     {% set frames = job.outputs | selectattr("type", "equalto", "frame") | list %}
     {% set thumbs = job.outputs | selectattr("type", "equalto", "thumbnail") | list %}
     {% set videos = job.outputs | selectattr("type", "equalto", "video") | list %}
 
     {% if videos %}
-    <h3 style="font-size: 0.9rem; color: var(--text-muted); margin: 1rem 0 0.75rem;">Transcoded Video</h3>
+    <h3 style="font-size: 0.9rem; color: var(--text-muted); margin: 1rem 0 0.75rem;">Transcoded Video ({{ videos | length }})</h3>
     <div class="output-grid">
         {% for out in videos %}
         <div class="output-card">
             <div class="output-preview-placeholder">&#127909;</div>
             <div class="output-info">
                 <div class="filename">{{ out.filename }}</div>
-                <div class="size">{{ out.size_mb }} MB</div>
+                <div class="output-detail-row">
+                    <span class="detail-chip detail-chip-format">{{ out.format }}</span>
+                    <span class="detail-chip detail-chip-size">{{ out.size_display }}</span>
+                </div>
                 <a href="{{ out.url }}" target="_blank">Download / View</a>
             </div>
         </div>
@@ -100,7 +219,13 @@
             <img src="{{ out.url }}" alt="{{ out.filename }}" class="output-preview" loading="lazy">
             <div class="output-info">
                 <div class="filename">{{ out.filename }}</div>
-                <div class="size">{{ out.size_mb }} MB</div>
+                <div class="output-detail-row">
+                    <span class="detail-chip detail-chip-format">{{ out.format }}</span>
+                    <span class="detail-chip detail-chip-size">{{ out.size_display }}</span>
+                    {% if out.dimensions %}
+                    <span class="detail-chip">{{ out.dimensions }}</span>
+                    {% endif %}
+                </div>
                 <a href="{{ out.url }}" target="_blank">View Full Size</a>
             </div>
         </div>
@@ -116,7 +241,13 @@
             <img src="{{ out.url }}" alt="{{ out.filename }}" class="output-preview" loading="lazy">
             <div class="output-info">
                 <div class="filename">{{ out.filename }}</div>
-                <div class="size">{{ out.size_mb }} MB</div>
+                <div class="output-detail-row">
+                    <span class="detail-chip detail-chip-format">{{ out.format }}</span>
+                    <span class="detail-chip detail-chip-size">{{ out.size_display }}</span>
+                    {% if out.dimensions %}
+                    <span class="detail-chip">{{ out.dimensions }}</span>
+                    {% endif %}
+                </div>
                 <a href="{{ out.url }}" target="_blank">View Full Size</a>
             </div>
         </div>

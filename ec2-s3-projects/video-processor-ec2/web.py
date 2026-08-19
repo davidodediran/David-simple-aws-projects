@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, jsonify, redirect, render_template, request, url_for
+from PIL import Image
 
 from config import Config
 from processor import get_video_metadata, process_video
@@ -28,6 +29,15 @@ s3_client = S3Client()
 
 # In-memory job tracker (use a database for production at scale)
 jobs = {}
+
+
+def _format_size(size_bytes):
+    """Return a human-friendly size string: bytes, KB, or MB."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024 * 1024:
+        return f"{round(size_bytes / 1024, 1)} KB"
+    return f"{round(size_bytes / (1024 * 1024), 2)} MB"
 
 
 def _bytes_to_mb(size_bytes):
@@ -60,22 +70,43 @@ def _run_processing(job_id, video_path, mode):
                     ExpiresIn=3600,
                 )
 
-                outputs.append({
+                output_entry = {
                     "filename": str(relative),
                     "s3_key": s3_key,
                     "size_bytes": size_bytes,
                     "size_mb": _bytes_to_mb(size_bytes),
+                    "size_display": _format_size(size_bytes),
                     "url": presigned_url,
                     "type": _classify_output(str(relative)),
-                })
+                    "format": file_path.suffix.lstrip(".").upper(),
+                    "dimensions": None,
+                }
+
+                if file_path.suffix.lower() in (".jpg", ".jpeg", ".png", ".bmp", ".webp"):
+                    try:
+                        with Image.open(file_path) as img:
+                            output_entry["dimensions"] = f"{img.width}x{img.height}"
+                    except Exception:
+                        pass
+
+                outputs.append(output_entry)
 
         total_output_bytes = sum(o["size_bytes"] for o in outputs)
+        input_bytes = int(job["input_size_mb"] * 1024 * 1024)
+        compression_ratio = None
+        savings_percent = None
+        if input_bytes > 0 and total_output_bytes > 0:
+            compression_ratio = round(input_bytes / total_output_bytes, 1)
+            savings_percent = round((1 - total_output_bytes / input_bytes) * 100, 1)
 
         job["status"] = "completed"
         job["completed_at"] = datetime.now(timezone.utc).isoformat()
         job["outputs"] = outputs
         job["files_uploaded"] = uploaded
         job["total_output_mb"] = _bytes_to_mb(total_output_bytes)
+        job["total_output_display"] = _format_size(total_output_bytes)
+        job["compression_ratio"] = compression_ratio
+        job["savings_percent"] = savings_percent
         job["metadata"] = result.get("metadata")
         job["s3_prefix"] = f"s3://{Config.S3_OUTPUT_BUCKET}/{s3_prefix}"
 
@@ -139,8 +170,12 @@ def upload():
         "status": "queued",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "input_size_mb": _bytes_to_mb(input_size),
+        "input_size_display": _format_size(input_size),
         "outputs": [],
         "total_output_mb": 0,
+        "total_output_display": "0 B",
+        "compression_ratio": None,
+        "savings_percent": None,
         "error": None,
     }
 

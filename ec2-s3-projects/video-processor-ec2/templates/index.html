@@ -41,6 +41,7 @@
                     <th>Mode</th>
                     <th>Input Size</th>
                     <th>Output Size</th>
+                    <th>Savings</th>
                     <th>Status</th>
                     <th>Created</th>
                     <th></th>
@@ -51,8 +52,19 @@
                 <tr>
                     <td>{{ job.original_filename }}</td>
                     <td><span class="mode-tag">{{ job.mode }}</span></td>
-                    <td>{{ job.input_size_mb }} MB</td>
-                    <td>{% if job.total_output_mb %}{{ job.total_output_mb }} MB{% else %}-{% endif %}</td>
+                    <td>{{ job.input_size_display or (job.input_size_mb ~ ' MB') }}</td>
+                    <td>{% if job.total_output_display and job.status == 'completed' %}{{ job.total_output_display }}{% else %}-{% endif %}</td>
+                    <td>
+                        {% if job.savings_percent is not none and job.status == 'completed' %}
+                            {% if job.savings_percent > 0 %}
+                            <span style="color: var(--success); font-size: 0.8rem; font-weight: 600;">&darr; {{ job.savings_percent }}%</span>
+                            {% elif job.savings_percent < 0 %}
+                            <span style="color: var(--warning); font-size: 0.8rem; font-weight: 600;">&uarr; {{ (job.savings_percent | abs) }}%</span>
+                            {% else %}
+                            <span style="color: var(--text-muted); font-size: 0.8rem;">-</span>
+                            {% endif %}
+                        {% else %}-{% endif %}
+                    </td>
                     <td>
                         <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
                     </td>
