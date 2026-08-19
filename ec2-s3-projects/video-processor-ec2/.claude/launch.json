@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "video-processor-web",
+      "runtimeExecutable": "/home/david/Documents/video-processor-ec2/.venv/bin/python",
+      "runtimeArgs": ["web.py"],
+      "port": 5000
+    }
+  ]
+}

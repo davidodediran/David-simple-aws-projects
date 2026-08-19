@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Video Processor - Dashboard{% endblock %}
+
+{% block content %}
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="card">
+    <h2>Upload Video</h2>
+    <form action="/upload" method="POST" enctype="multipart/form-data">
+        <div style="display: grid; grid-template-columns: 1fr 200px; gap: 1rem; align-items: end;">
+            <div class="form-group">
+                <label for="video">Video File</label>
+                <input type="file" name="video" id="video" accept="video/*" required>
+            </div>
+            <div class="form-group">
+                <label for="mode">Processing Type</label>
+                <select name="mode" id="mode">
+                    <option value="frames">Extract Frames</option>
+                    <option value="thumbnails">Generate Thumbnails</option>
+                    <option value="transcode">Transcode Video</option>
+                    <option value="all">All Processing</option>
+                </select>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top: 0.5rem;">Upload &amp; Process</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Processing Jobs</h2>
+    {% if jobs %}
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>File</th>
+                    <th>Mode</th>
+                    <th>Input Size</th>
+                    <th>Output Size</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in jobs %}
+                <tr>
+                    <td>{{ job.original_filename }}</td>
+                    <td><span class="mode-tag">{{ job.mode }}</span></td>
+                    <td>{{ job.input_size_mb }} MB</td>
+                    <td>{% if job.total_output_mb %}{{ job.total_output_mb }} MB{% else %}-{% endif %}</td>
+                    <td>
+                        <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
+                    </td>
+                    <td style="color: var(--text-muted); font-size: 0.8rem;">{{ job.created_at[:19] }}</td>
+                    <td>
+                        <a href="/job/{{ job.id }}" class="btn btn-back" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">View</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No videos processed yet. Upload one to get started.</p>
+    </div>
+    {% endif %}
+</div>
+
+{% endblock %}

@@ -1,0 +1,35 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadInputBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::my-video-input-bucket",
+        "arn:aws:s3:::my-video-input-bucket/*"
+      ]
+    },
+    {
+      "Sid": "WriteInputBucketProcessed",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:CopyObject"
+      ],
+      "Resource": "arn:aws:s3:::my-video-input-bucket/*"
+    },
+    {
+      "Sid": "WriteOutputBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::my-video-output-bucket/*"
+    }
+  ]
+}

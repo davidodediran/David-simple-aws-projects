@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Job {{ job.id }} - {{ job.original_filename }}{% endblock %}
+
+{% block extra_head %}
+{% if job.status in ('queued', 'processing') %}
+<script>
+    setTimeout(function() { window.location.reload(); }, 3000);
+</script>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+
+<div style="margin-bottom: 1.5rem;">
+    <a href="/" class="btn btn-back">&larr; Back to Dashboard</a>
+</div>
+
+<div class="card">
+    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+        <h2 style="margin-bottom: 0;">{{ job.original_filename }}</h2>
+        <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
+        <span class="mode-tag">{{ job.mode }}</span>
+    </div>
+
+    {% if job.error %}
+    <div class="error-box">{{ job.error }}</div>
+    {% endif %}
+
+    <div class="stat-grid">
+        <div class="stat-box">
+            <div class="value">{{ job.input_size_mb }}</div>
+            <div class="label">Input (MB)</div>
+        </div>
+        <div class="stat-box">
+            <div class="value">{{ job.total_output_mb }}</div>
+            <div class="label">Output (MB)</div>
+        </div>
+        <div class="stat-box">
+            <div class="value">{{ job.outputs | length }}</div>
+            <div class="label">Files Generated</div>
+        </div>
+        {% if job.metadata %}
+        <div class="stat-box">
+            <div class="value">{{ "%.1f" | format(job.metadata.duration_seconds) }}s</div>
+            <div class="label">Duration</div>
+        </div>
+        <div class="stat-box">
+            <div class="value">{{ job.metadata.width }}x{{ job.metadata.height }}</div>
+            <div class="label">Resolution</div>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if job.s3_prefix %}
+    <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">
+        S3 Location: <code style="color: var(--info);">{{ job.s3_prefix }}</code>
+    </p>
+    {% endif %}
+</div>
+
+{% if job.status in ('queued', 'processing') %}
+<div class="card">
+    <div class="empty-state">
+        <p style="font-size: 1.2rem;">Processing your video...</p>
+        <p style="margin-top: 0.5rem;">This page refreshes automatically every 3 seconds.</p>
+    </div>
+</div>
+{% endif %}
+
+{% if job.outputs %}
+<div class="card">
+    <h2>Processed Results ({{ job.outputs | length }} files, {{ job.total_output_mb }} MB total)</h2>
+
+    {% set frames = job.outputs | selectattr("type", "equalto", "frame") | list %}
+    {% set thumbs = job.outputs | selectattr("type", "equalto", "thumbnail") | list %}
+    {% set videos = job.outputs | selectattr("type", "equalto", "video") | list %}
+
+    {% if videos %}
+    <h3 style="font-size: 0.9rem; color: var(--text-muted); margin: 1rem 0 0.75rem;">Transcoded Video</h3>
+    <div class="output-grid">
+        {% for out in videos %}
+        <div class="output-card">
+            <div class="output-preview-placeholder">&#127909;</div>
+            <div class="output-info">
+                <div class="filename">{{ out.filename }}</div>
+                <div class="size">{{ out.size_mb }} MB</div>
+                <a href="{{ out.url }}" target="_blank">Download / View</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if frames %}
+    <h3 style="font-size: 0.9rem; color: var(--text-muted); margin: 1rem 0 0.75rem;">Extracted Frames ({{ frames | length }})</h3>
+    <div class="output-grid">
+        {% for out in frames %}
+        <div class="output-card">
+            <img src="{{ out.url }}" alt="{{ out.filename }}" class="output-preview" loading="lazy">
+            <div class="output-info">
+                <div class="filename">{{ out.filename }}</div>
+                <div class="size">{{ out.size_mb }} MB</div>
+                <a href="{{ out.url }}" target="_blank">View Full Size</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if thumbs %}
+    <h3 style="font-size: 0.9rem; color: var(--text-muted); margin: 1rem 0 0.75rem;">Thumbnails ({{ thumbs | length }})</h3>
+    <div class="output-grid">
+        {% for out in thumbs %}
+        <div class="output-card">
+            <img src="{{ out.url }}" alt="{{ out.filename }}" class="output-preview" loading="lazy">
+            <div class="output-info">
+                <div class="filename">{{ out.filename }}</div>
+                <div class="size">{{ out.size_mb }} MB</div>
+                <a href="{{ out.url }}" target="_blank">View Full Size</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}
