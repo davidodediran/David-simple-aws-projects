@@ -1,15 +1,19 @@
 # Video Processor for EC2
 
-A Python application that processes video files on an EC2 instance and stores the results in Amazon S3. Includes a web UI for uploading videos, selecting processing types, and viewing results with file sizes.
+A Python application that processes video files on an EC2 instance and stores the results in Amazon S3. Includes a web UI for uploading videos, selecting processing types, and viewing results with file sizes. Run it directly on EC2 or in Docker.
 
 ## Architecture
 
 ```
-User (Browser) --> EC2 (Flask Web UI :5000) --> ffmpeg (process video)
-                                            --> S3 Output Bucket (upload results)
+User (Browser) --> EC2 or Docker (Flask Web UI :5000) --> ffmpeg (process video)
+                                                      --> S3 Output Bucket (upload results)
 
-S3 Input Bucket --> EC2 (CLI poller) --> ffmpeg --> S3 Output Bucket
+S3 Input Bucket --> EC2 or Docker (CLI poller) --> ffmpeg --> S3 Output Bucket
 ```
+
+**Two ways to deploy:**
+- **Directly on EC2** - Run with systemd (see Steps 3-6)
+- **Docker on EC2** - Run with Docker Compose (see Docker Deployment)
 
 **Two ways to use it:**
 - **Web UI** - Upload videos from your browser, pick a processing mode, view results
@@ -21,6 +25,7 @@ S3 Input Bucket --> EC2 (CLI poller) --> ffmpeg --> S3 Output Bucket
 - An EC2 instance (Amazon Linux 2023 or Ubuntu 22.04+)
 - Two S3 buckets (one for input, one for output)
 - An IAM role attached to the EC2 instance
+- **For Docker deployment:** Docker and Docker Compose installed on the EC2 instance
 
 ## Step 1: Create the S3 Buckets
 
@@ -226,6 +231,105 @@ The poller picks it up, processes it, uploads results to the output bucket, and 
 | `transcode` | Re-encodes the video using a different codec/format | Single video file (default: H.264 MP4 with AAC audio) |
 | `all` | Runs frames + thumbnails + transcode together | All of the above |
 
+## Docker Deployment
+
+If you prefer running the app in Docker instead of installing directly on EC2, follow Steps 1 and 2 above (create S3 buckets and IAM role), then use these steps instead of Steps 4-6.
+
+### Install Docker on EC2
+
+**Amazon Linux 2023:**
+
+```bash
+sudo dnf install -y docker
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker ec2-user
+
+# Install Docker Compose plugin
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+sudo curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+```
+
+**Ubuntu 22.04+:**
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose-v2
+sudo systemctl enable docker
+sudo usermod -aG docker ubuntu
+```
+
+Log out and back in for the group change to take effect.
+
+### Clone and Configure
+
+```bash
+git clone https://github.com/davidodediran/David-simple-aws-projects.git
+cd David-simple-aws-projects/ec2-s3-projects/video-processor-ec2
+cp .env.example .env
+```
+
+Edit `.env` with your bucket names and region:
+
+```bash
+vi .env
+```
+
+### Run with Docker Compose
+
+**Web UI only** (most common - upload and process from the browser):
+
+```bash
+docker compose up -d
+```
+
+**Web UI + S3 poller** (also watches the S3 input bucket for new videos):
+
+```bash
+docker compose --profile with-poller up -d
+```
+
+The web UI is available at `http://<ec2-public-ip>:5000`.
+
+### Docker Management Commands
+
+```bash
+# View logs
+docker compose logs -f web
+docker compose logs -f poller
+
+# Stop everything
+docker compose down
+
+# Rebuild after code changes
+docker compose build
+docker compose up -d
+
+# Process a single file using the CLI
+docker compose run --rm web python app.py --file /app/input/video.mp4 --mode all
+```
+
+### Pass AWS Credentials to Docker
+
+The container needs AWS credentials to access S3. Three options:
+
+**Option A: IAM instance role (recommended)** - If the EC2 instance has an IAM role attached, the container picks it up automatically. Nothing extra needed.
+
+**Option B: Environment variables** - Add to your `.env` file:
+
+```
+AWS_ACCESS_KEY_ID=your-access-key
+AWS_SECRET_ACCESS_KEY=your-secret-key
+```
+
+**Option C: Mount credentials** - Add to `docker-compose.yml` under the service:
+
+```yaml
+volumes:
+  - ~/.aws:/root/.aws:ro
+```
+
 ## Troubleshooting
 
 ### Web UI not loading
@@ -266,6 +370,9 @@ video-processor-ec2/
   iam-policy.json     # IAM policy template for the EC2 instance role
   requirements.txt    # Python dependencies
   .env.example        # Environment variable template
+  Dockerfile          # Container image definition
+  docker-compose.yml  # Docker Compose config (web UI + optional S3 poller)
+  .dockerignore       # Files excluded from Docker build
   templates/
     base.html         # Shared page layout and styles
     index.html        # Dashboard - upload form and jobs table

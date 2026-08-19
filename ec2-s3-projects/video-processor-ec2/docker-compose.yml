@@ -1,0 +1,33 @@
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      - LOCAL_INPUT_DIR=/app/input
+      - LOCAL_OUTPUT_DIR=/app/output
+    volumes:
+      - video-input:/app/input
+      - video-output:/app/output
+    restart: unless-stopped
+
+  poller:
+    build: .
+    command: ["python", "app.py"]
+    env_file:
+      - .env
+    environment:
+      - LOCAL_INPUT_DIR=/app/input
+      - LOCAL_OUTPUT_DIR=/app/output
+    volumes:
+      - video-input:/app/input
+      - video-output:/app/output
+    restart: unless-stopped
+    profiles:
+      - with-poller
+
+volumes:
+  video-input:
+  video-output:
