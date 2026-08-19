@@ -1,0 +1,476 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless Video Processor - S3 + Lambda + API Gateway + DynamoDB + CloudFront
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: serverless-video-processor
+    Description: Name prefix for all resources
+
+  PresignExpirySeconds:
+    Type: Number
+    Default: 86400
+    Description: Pre-signed URL expiry in seconds (default 24 hours)
+
+  FFmpegLayerArn:
+    Type: String
+    Default: ''
+    Description: ARN of an existing Lambda layer with ffmpeg (leave empty to use the bundled layer)
+
+Conditions:
+  UseCustomFFmpegLayer: !Not [!Equals [!Ref FFmpegLayerArn, '']]
+
+Resources:
+
+  # ==================== S3 BUCKETS ====================
+
+  InputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvironmentName}-input-${AWS::AccountId}
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [PUT]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
+      LifecycleConfiguration:
+        Rules:
+          - Id: CleanupUploads
+            Status: Enabled
+            ExpirationInDays: 7
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-input
+
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvironmentName}-output-${AWS::AccountId}
+      LifecycleConfiguration:
+        Rules:
+          - Id: CleanupOldOutputs
+            Status: Enabled
+            ExpirationInDays: 30
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-output
+
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvironmentName}-website-${AWS::AccountId}
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-website
+
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub ${WebsiteBucket.Arn}/*
+
+  # ==================== DYNAMODB ====================
+
+  JobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${EnvironmentName}-jobs
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: job_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: job_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-jobs
+
+  # ==================== IAM ====================
+
+  ProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-processor-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: !Sub ${EnvironmentName}-processor-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadInputBucket
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:HeadObject
+                Resource: !Sub arn:aws:s3:::${EnvironmentName}-input-${AWS::AccountId}/*
+              - Sid: WriteOutputBucket
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub ${OutputBucket.Arn}/*
+              - Sid: DynamoDBAccess
+                Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetItem
+                Resource: !GetAtt JobsTable.Arn
+
+  ApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-api-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: !Sub ${EnvironmentName}-api-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: S3PresignInput
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub ${InputBucket.Arn}/*
+              - Sid: S3PresignOutput
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub ${OutputBucket.Arn}/*
+              - Sid: DynamoDBRead
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Scan
+                Resource: !GetAtt JobsTable.Arn
+
+  # ==================== LAMBDA FUNCTIONS ====================
+
+  ProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${EnvironmentName}-processor
+      Runtime: python3.12
+      Handler: handler.handler
+      Role: !GetAtt ProcessorRole.Arn
+      Timeout: 900
+      MemorySize: 3008
+      EphemeralStorage:
+        Size: 10240
+      Code:
+        ZipFile: |
+          # Placeholder - deploy actual code via aws lambda update-function-code
+          def handler(event, context):
+              return {"statusCode": 200, "body": "Deploy processor code"}
+      Layers:
+        - !If
+          - UseCustomFFmpegLayer
+          - !Ref FFmpegLayerArn
+          - !Sub arn:aws:lambda:${AWS::Region}:653103516076:layer:ffmpeg:2
+      Environment:
+        Variables:
+          OUTPUT_BUCKET: !Ref OutputBucket
+          JOBS_TABLE: !Ref JobsTable
+          PRESIGN_EXPIRY_SECONDS: !Ref PresignExpirySeconds
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-processor
+
+  ProcessorInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ProcessorFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub arn:aws:s3:::${EnvironmentName}-input-${AWS::AccountId}
+
+  InputBucketNotification:
+    Type: Custom::S3BucketNotification
+    DependsOn:
+      - ProcessorInvokePermission
+    Properties:
+      ServiceToken: !GetAtt NotificationHelperFunction.Arn
+      BucketName: !Ref InputBucket
+      LambdaArn: !GetAtt ProcessorFunction.Arn
+      Prefix: uploads/
+
+  NotificationHelperRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3NotificationAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutBucketNotification
+                  - s3:GetBucketNotification
+                Resource: !Sub arn:aws:s3:::${EnvironmentName}-input-${AWS::AccountId}
+
+  NotificationHelperFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${EnvironmentName}-notification-helper
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt NotificationHelperRole.Arn
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+
+          s3 = boto3.client('s3')
+
+          def handler(event, context):
+              try:
+                  bucket = event['ResourceProperties']['BucketName']
+                  lambda_arn = event['ResourceProperties']['LambdaArn']
+                  prefix = event['ResourceProperties'].get('Prefix', '')
+
+                  if event['RequestType'] in ('Create', 'Update'):
+                      s3.put_bucket_notification_configuration(
+                          Bucket=bucket,
+                          NotificationConfiguration={
+                              'LambdaFunctionConfigurations': [{
+                                  'LambdaFunctionArn': lambda_arn,
+                                  'Events': ['s3:ObjectCreated:*'],
+                                  'Filter': {
+                                      'Key': {
+                                          'FilterRules': [{'Name': 'prefix', 'Value': prefix}]
+                                      }
+                                  }
+                              }]
+                          }
+                      )
+                  elif event['RequestType'] == 'Delete':
+                      s3.put_bucket_notification_configuration(
+                          Bucket=bucket,
+                          NotificationConfiguration={}
+                      )
+
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  print(e)
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+
+  ApiFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${EnvironmentName}-api
+      Runtime: python3.12
+      Handler: handler.handler
+      Role: !GetAtt ApiRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Code:
+        ZipFile: |
+          # Placeholder - deploy actual code via aws lambda update-function-code
+          def handler(event, context):
+              return {"statusCode": 200, "body": "Deploy API code"}
+      Environment:
+        Variables:
+          INPUT_BUCKET: !Ref InputBucket
+          OUTPUT_BUCKET: !Ref OutputBucket
+          JOBS_TABLE: !Ref JobsTable
+          PRESIGN_EXPIRY_SECONDS: !Ref PresignExpirySeconds
+          ALLOWED_ORIGINS: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-api
+
+  # ==================== API GATEWAY ====================
+
+  ApiGateway:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub ${EnvironmentName}-api
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowHeaders:
+          - Content-Type
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowOrigins:
+          - '*'
+
+  ApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ApiGateway
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ApiFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  ApiRouteUpload:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: POST /upload
+      Target: !Sub integrations/${ApiIntegration}
+
+  ApiRouteGetJob:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: GET /job/{id}
+      Target: !Sub integrations/${ApiIntegration}
+
+  ApiRouteListJobs:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: GET /jobs
+      Target: !Sub integrations/${ApiIntegration}
+
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref ApiGateway
+      StageName: $default
+      AutoDeploy: true
+
+  ApiLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*
+
+  # ==================== CLOUDFRONT ====================
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Comment: !Sub ${EnvironmentName} static website
+        Origins:
+          - Id: S3Website
+            DomainName: !Select [1, !Split ['://', !GetAtt WebsiteBucket.WebsiteURL]]
+            CustomOriginConfig:
+              OriginProtocolPolicy: http-only
+        DefaultCacheBehavior:
+          TargetOriginId: S3Website
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          ForwardedValues:
+            QueryString: false
+        PriceClass: PriceClass_100
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-cdn
+
+Outputs:
+  WebsiteBucketName:
+    Description: S3 bucket for static website files
+    Value: !Ref WebsiteBucket
+
+  WebsiteURL:
+    Description: Static website URL (S3)
+    Value: !GetAtt WebsiteBucket.WebsiteURL
+
+  CloudFrontURL:
+    Description: CloudFront distribution URL (HTTPS)
+    Value: !Sub https://${CloudFrontDistribution.DomainName}
+
+  ApiGatewayURL:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com
+
+  InputBucketName:
+    Description: S3 input bucket for video uploads
+    Value: !Ref InputBucket
+
+  OutputBucketName:
+    Description: S3 output bucket for processed files
+    Value: !Ref OutputBucket
+
+  JobsTableName:
+    Description: DynamoDB table for job tracking
+    Value: !Ref JobsTable
+
+  ProcessorFunctionName:
+    Description: Lambda processor function name
+    Value: !Ref ProcessorFunction
+
+  ApiFunctionName:
+    Description: Lambda API function name
+    Value: !Ref ApiFunction
+
+  ProcessorFunctionArn:
+    Description: Lambda processor function ARN (for deploying code)
+    Value: !GetAtt ProcessorFunction.Arn
+
+  ApiFunctionArn:
+    Description: Lambda API function ARN (for deploying code)
+    Value: !GetAtt ApiFunction.Arn
