@@ -247,81 +247,77 @@ Resources:
           chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 
           # Write .env config
-          cat > "$APP_DIR/.env" << 'ENVEOF'
-          S3_INPUT_BUCKET=${InputBucket}
-          S3_OUTPUT_BUCKET=${OutputBucket}
-          S3_INPUT_PREFIX=raw/
-          S3_OUTPUT_PREFIX=processed/
-          AWS_DEFAULT_REGION=${AWS::Region}
-          LOG_LEVEL=INFO
-          ENVEOF
-
+          printf '%s\n' \
+            "S3_INPUT_BUCKET=${InputBucket}" \
+            "S3_OUTPUT_BUCKET=${OutputBucket}" \
+            "S3_INPUT_PREFIX=raw/" \
+            "S3_OUTPUT_PREFIX=processed/" \
+            "AWS_DEFAULT_REGION=${AWS::Region}" \
+            "LOG_LEVEL=INFO" \
+            > "$APP_DIR/.env"
           chown "$APP_USER:$APP_USER" "$APP_DIR/.env"
 
-          # Clone or copy application files
-          # NOTE: Replace this with your actual deployment method
-          # Option 1: git clone
-          # git clone https://github.com/davidodediran/David-simple-aws-projects.git /tmp/repo
-          # cp /tmp/repo/ec2-s3-projects/video-processor-ec2/*.py "$APP_DIR/"
-          # cp -r /tmp/repo/ec2-s3-projects/video-processor-ec2/templates "$APP_DIR/"
-          # cp /tmp/repo/ec2-s3-projects/video-processor-ec2/requirements.txt "$APP_DIR/"
+          # Clone application code from GitHub
+          git clone https://github.com/davidodediran/David-simple-aws-projects.git /tmp/repo
+          cp /tmp/repo/video-processor/ec2-s3-video-processor/*.py "$APP_DIR/"
+          cp -r /tmp/repo/video-processor/ec2-s3-video-processor/templates "$APP_DIR/"
+          cp /tmp/repo/video-processor/ec2-s3-video-processor/requirements.txt "$APP_DIR/"
+          chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 
-          # Option 2: Download from S3 (upload your code to S3 first)
-          # aws s3 cp s3://my-deploy-bucket/video-processor/ "$APP_DIR/" --recursive
-
-          # Install Python dependencies (after files are in place)
-          # sudo -u "$APP_USER" python3.11 -m venv "$APP_DIR/venv"
-          # sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --upgrade pip
-          # sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install -r "$APP_DIR/requirements.txt"
+          # Install Python dependencies
+          sudo -u "$APP_USER" python3.11 -m venv "$APP_DIR/venv"
+          sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --upgrade pip
+          sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install -r "$APP_DIR/requirements.txt"
 
           # Install systemd service for Web UI
-          cat > /etc/systemd/system/video-processor-web.service << 'SVCEOF'
-          [Unit]
-          Description=Video Processor - Web UI
-          After=network-online.target
-          Wants=network-online.target
-
-          [Service]
-          Type=simple
-          User=videoprocessor
-          Group=videoprocessor
-          WorkingDirectory=/opt/video-processor
-          ExecStart=/opt/video-processor/venv/bin/gunicorn web:app --bind 0.0.0.0:5000 --workers 2 --threads 4 --timeout 300
-          Restart=on-failure
-          RestartSec=10
-          StandardOutput=journal
-          StandardError=journal
-          EnvironmentFile=/opt/video-processor/.env
-
-          [Install]
-          WantedBy=multi-user.target
-          SVCEOF
+          printf '%s\n' \
+            "[Unit]" \
+            "Description=Video Processor - Web UI" \
+            "After=network-online.target" \
+            "Wants=network-online.target" \
+            "" \
+            "[Service]" \
+            "Type=simple" \
+            "User=videoprocessor" \
+            "Group=videoprocessor" \
+            "WorkingDirectory=/opt/video-processor" \
+            "ExecStart=/opt/video-processor/venv/bin/gunicorn web:app --bind 0.0.0.0:5000 --workers 2 --threads 4 --timeout 300" \
+            "Restart=on-failure" \
+            "RestartSec=10" \
+            "StandardOutput=journal" \
+            "StandardError=journal" \
+            "EnvironmentFile=/opt/video-processor/.env" \
+            "" \
+            "[Install]" \
+            "WantedBy=multi-user.target" \
+            > /etc/systemd/system/video-processor-web.service
 
           # Install systemd service for S3 Poller (optional)
-          cat > /etc/systemd/system/video-processor.service << 'SVCEOF'
-          [Unit]
-          Description=Video Processor - S3 Poll Worker
-          After=network-online.target
-          Wants=network-online.target
-
-          [Service]
-          Type=simple
-          User=videoprocessor
-          Group=videoprocessor
-          WorkingDirectory=/opt/video-processor
-          ExecStart=/opt/video-processor/venv/bin/python /opt/video-processor/app.py
-          Restart=on-failure
-          RestartSec=10
-          StandardOutput=journal
-          StandardError=journal
-          EnvironmentFile=/opt/video-processor/.env
-
-          [Install]
-          WantedBy=multi-user.target
-          SVCEOF
+          printf '%s\n' \
+            "[Unit]" \
+            "Description=Video Processor - S3 Poll Worker" \
+            "After=network-online.target" \
+            "Wants=network-online.target" \
+            "" \
+            "[Service]" \
+            "Type=simple" \
+            "User=videoprocessor" \
+            "Group=videoprocessor" \
+            "WorkingDirectory=/opt/video-processor" \
+            "ExecStart=/opt/video-processor/venv/bin/python /opt/video-processor/app.py" \
+            "Restart=on-failure" \
+            "RestartSec=10" \
+            "StandardOutput=journal" \
+            "StandardError=journal" \
+            "EnvironmentFile=/opt/video-processor/.env" \
+            "" \
+            "[Install]" \
+            "WantedBy=multi-user.target" \
+            > /etc/systemd/system/video-processor.service
 
           systemctl daemon-reload
           systemctl enable video-processor-web
+          systemctl start video-processor-web
 
           echo "Video Processor setup complete"
       Tags:
