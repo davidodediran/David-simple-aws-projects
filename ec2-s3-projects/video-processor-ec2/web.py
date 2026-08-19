@@ -9,12 +9,11 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, url_for
 from PIL import Image
 
 from config import Config
 from processor import get_video_metadata, process_video
-from s3_client import S3Client
 
 logging.basicConfig(
     level=getattr(logging, Config.LOG_LEVEL),
@@ -25,7 +24,20 @@ logger = logging.getLogger("video-processor-web")
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024 * 1024  # 2 GB upload limit
 
-s3_client = S3Client()
+LOCAL_MODE = os.getenv("LOCAL_MODE", "false").lower() == "true"
+
+s3_client = None
+if not LOCAL_MODE:
+    try:
+        from s3_client import S3Client
+        s3_client = S3Client()
+        logger.info("S3 mode enabled")
+    except Exception as e:
+        logger.warning("S3 client init failed (%s), falling back to local mode", e)
+        LOCAL_MODE = True
+
+if LOCAL_MODE:
+    logger.info("Running in LOCAL mode - files served from disk, no S3")
 
 # In-memory job tracker (use a database for production at scale)
 jobs = {}
@@ -45,7 +57,7 @@ def _bytes_to_mb(size_bytes):
 
 
 def _run_processing(job_id, video_path, mode):
-    """Background worker that processes a video and uploads results to S3."""
+    """Background worker that processes a video and uploads results."""
     job = jobs[job_id]
     try:
         job["status"] = "processing"
@@ -54,29 +66,33 @@ def _run_processing(job_id, video_path, mode):
         output_dir = Config.LOCAL_OUTPUT_DIR / job_id
         result = process_video(video_path, output_dir, mode=mode)
 
-        s3_prefix = f"{Config.S3_OUTPUT_PREFIX}{job_id}/"
-        uploaded = s3_client.upload_directory(output_dir, s3_prefix)
+        uploaded = 0
+        if not LOCAL_MODE:
+            s3_prefix = f"{Config.S3_OUTPUT_PREFIX}{job_id}/"
+            uploaded = s3_client.upload_directory(output_dir, s3_prefix)
 
         outputs = []
         for file_path in Path(output_dir).rglob("*"):
             if file_path.is_file() and file_path.name != "manifest.json":
                 relative = file_path.relative_to(output_dir)
-                s3_key = f"{s3_prefix}{relative}"
                 size_bytes = file_path.stat().st_size
 
-                presigned_url = s3_client.s3.generate_presigned_url(
-                    "get_object",
-                    Params={"Bucket": Config.S3_OUTPUT_BUCKET, "Key": s3_key},
-                    ExpiresIn=3600,
-                )
+                if LOCAL_MODE:
+                    file_url = f"/outputs/{job_id}/{relative}"
+                else:
+                    s3_key = f"{s3_prefix}{relative}"
+                    file_url = s3_client.s3.generate_presigned_url(
+                        "get_object",
+                        Params={"Bucket": Config.S3_OUTPUT_BUCKET, "Key": s3_key},
+                        ExpiresIn=3600,
+                    )
 
                 output_entry = {
                     "filename": str(relative),
-                    "s3_key": s3_key,
                     "size_bytes": size_bytes,
                     "size_mb": _bytes_to_mb(size_bytes),
                     "size_display": _format_size(size_bytes),
-                    "url": presigned_url,
+                    "url": file_url,
                     "type": _classify_output(str(relative)),
                     "format": file_path.suffix.lstrip(".").upper(),
                     "dimensions": None,
@@ -108,7 +124,10 @@ def _run_processing(job_id, video_path, mode):
         job["compression_ratio"] = compression_ratio
         job["savings_percent"] = savings_percent
         job["metadata"] = result.get("metadata")
-        job["s3_prefix"] = f"s3://{Config.S3_OUTPUT_BUCKET}/{s3_prefix}"
+        if LOCAL_MODE:
+            job["s3_prefix"] = f"local:{output_dir}"
+        else:
+            job["s3_prefix"] = f"s3://{Config.S3_OUTPUT_BUCKET}/{s3_prefix}"
 
     except Exception as e:
         logger.exception("Job %s failed", job_id)
@@ -117,10 +136,11 @@ def _run_processing(job_id, video_path, mode):
     finally:
         if Path(video_path).exists():
             Path(video_path).unlink()
-        output_dir = Config.LOCAL_OUTPUT_DIR / job_id
-        if output_dir.exists():
-            import shutil
-            shutil.rmtree(output_dir)
+        if not LOCAL_MODE:
+            output_dir = Config.LOCAL_OUTPUT_DIR / job_id
+            if output_dir.exists():
+                import shutil
+                shutil.rmtree(output_dir)
 
 
 def _classify_output(filename):
@@ -200,6 +220,13 @@ def api_job_status(job_id):
     if not job:
         return jsonify({"error": "not found"}), 404
     return jsonify(job)
+
+
+@app.route("/outputs/<job_id>/<path:filename>")
+def serve_output(job_id, filename):
+    """Serve processed files from disk in local mode."""
+    output_dir = Config.LOCAL_OUTPUT_DIR / job_id
+    return send_from_directory(str(output_dir), filename)
 
 
 if __name__ == "__main__":
