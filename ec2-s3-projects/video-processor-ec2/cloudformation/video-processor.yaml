@@ -1,0 +1,362 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EC2 Video Processor - VPC, EC2, S3, IAM stack
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: video-processor
+    Description: Name prefix for all resources
+
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+      - t3.xlarge
+    Description: EC2 instance type
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Existing EC2 key pair for SSH access
+
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+    Description: Amazon Linux 2023 AMI (latest from SSM)
+
+  AllowedSSHCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR block allowed for SSH access (restrict to your IP)
+
+  AllowedWebCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR block allowed for web UI access on port 5000
+
+Resources:
+
+  # ==================== NETWORKING ====================
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-igw
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-public-subnet
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-public-rt
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  # ==================== SECURITY ====================
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Video Processor EC2 instance
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedSSHCidr
+          Description: SSH access
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5000
+          CidrIp: !Ref AllowedWebCidr
+          Description: Flask Web UI
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-sg
+
+  # ==================== S3 BUCKETS ====================
+
+  InputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvironmentName}-input-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-input
+
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvironmentName}-output-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-output
+
+  # ==================== IAM ====================
+
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-ec2-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${EnvironmentName}-s3-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadInputBucket
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:DeleteObject
+                Resource:
+                  - !GetAtt InputBucket.Arn
+                  - !Sub ${InputBucket.Arn}/*
+              - Sid: WriteInputBucketProcessed
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub ${InputBucket.Arn}/*
+              - Sid: WriteOutputBucket
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub ${OutputBucket.Arn}/*
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-ec2-role
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub ${EnvironmentName}-instance-profile
+      Roles:
+        - !Ref EC2Role
+
+  # ==================== EC2 INSTANCE ====================
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - InternetGatewayAttachment
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmiId
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+
+          APP_DIR="/opt/video-processor"
+          APP_USER="videoprocessor"
+
+          # Install system dependencies
+          dnf update -y
+          dnf install -y python3.11 python3.11-pip ffmpeg git
+
+          # Create application user
+          useradd --system --create-home --shell /bin/bash "$APP_USER" || true
+
+          # Set up application directory
+          mkdir -p "$APP_DIR"/{input,output,templates,static}
+          chown -R "$APP_USER:$APP_USER" "$APP_DIR"
+
+          # Write .env config
+          cat > "$APP_DIR/.env" << 'ENVEOF'
+          S3_INPUT_BUCKET=${InputBucket}
+          S3_OUTPUT_BUCKET=${OutputBucket}
+          S3_INPUT_PREFIX=raw/
+          S3_OUTPUT_PREFIX=processed/
+          AWS_DEFAULT_REGION=${AWS::Region}
+          LOG_LEVEL=INFO
+          ENVEOF
+
+          chown "$APP_USER:$APP_USER" "$APP_DIR/.env"
+
+          # Clone or copy application files
+          # NOTE: Replace this with your actual deployment method
+          # Option 1: git clone
+          # git clone https://github.com/davidodediran/David-simple-aws-projects.git /tmp/repo
+          # cp /tmp/repo/ec2-s3-projects/video-processor-ec2/*.py "$APP_DIR/"
+          # cp -r /tmp/repo/ec2-s3-projects/video-processor-ec2/templates "$APP_DIR/"
+          # cp /tmp/repo/ec2-s3-projects/video-processor-ec2/requirements.txt "$APP_DIR/"
+
+          # Option 2: Download from S3 (upload your code to S3 first)
+          # aws s3 cp s3://my-deploy-bucket/video-processor/ "$APP_DIR/" --recursive
+
+          # Install Python dependencies (after files are in place)
+          # sudo -u "$APP_USER" python3.11 -m venv "$APP_DIR/venv"
+          # sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --upgrade pip
+          # sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install -r "$APP_DIR/requirements.txt"
+
+          # Install systemd service for Web UI
+          cat > /etc/systemd/system/video-processor-web.service << 'SVCEOF'
+          [Unit]
+          Description=Video Processor - Web UI
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=videoprocessor
+          Group=videoprocessor
+          WorkingDirectory=/opt/video-processor
+          ExecStart=/opt/video-processor/venv/bin/gunicorn web:app --bind 0.0.0.0:5000 --workers 2 --threads 4 --timeout 300
+          Restart=on-failure
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+          EnvironmentFile=/opt/video-processor/.env
+
+          [Install]
+          WantedBy=multi-user.target
+          SVCEOF
+
+          # Install systemd service for S3 Poller (optional)
+          cat > /etc/systemd/system/video-processor.service << 'SVCEOF'
+          [Unit]
+          Description=Video Processor - S3 Poll Worker
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=videoprocessor
+          Group=videoprocessor
+          WorkingDirectory=/opt/video-processor
+          ExecStart=/opt/video-processor/venv/bin/python /opt/video-processor/app.py
+          Restart=on-failure
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+          EnvironmentFile=/opt/video-processor/.env
+
+          [Install]
+          WantedBy=multi-user.target
+          SVCEOF
+
+          systemctl daemon-reload
+          systemctl enable video-processor-web
+
+          echo "Video Processor setup complete"
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-ec2
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+
+  PublicSubnetId:
+    Description: Public Subnet ID
+    Value: !Ref PublicSubnet
+
+  SecurityGroupId:
+    Description: EC2 Security Group ID
+    Value: !Ref EC2SecurityGroup
+
+  EC2InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref EC2Instance
+
+  EC2PublicIP:
+    Description: EC2 Public IP Address
+    Value: !GetAtt EC2Instance.PublicIp
+
+  WebUIUrl:
+    Description: Video Processor Web UI URL
+    Value: !Sub http://${EC2Instance.PublicIp}:5000
+
+  InputBucketName:
+    Description: S3 Input Bucket
+    Value: !Ref InputBucket
+
+  OutputBucketName:
+    Description: S3 Output Bucket
+    Value: !Ref OutputBucket
+
+  IAMRoleArn:
+    Description: EC2 IAM Role ARN
+    Value: !GetAtt EC2Role.Arn

@@ -1,0 +1,214 @@
+<mxfile host="app.diagrams.net" modified="2026-08-19" agent="Claude" version="21.0.0" type="device">
+  <diagram name="EC2 Video Processor Architecture" id="video-processor-arch">
+    <mxGraphModel dx="1422" dy="920" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="EC2 Video Processor - AWS Architecture" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=20;fontStyle=1;fontColor=#232F3E;" vertex="1" parent="1">
+          <mxGeometry x="300" y="10" width="500" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- User -->
+        <mxCell id="user" value="User" style="sketch=0;outlineConnect=0;fontColor=#232F3E;fillColor=#232F3E;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.users;" vertex="1" parent="1">
+          <mxGeometry x="30" y="370" width="60" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- AWS Cloud -->
+        <mxCell id="aws-cloud" value="AWS Cloud" style="sketch=0;outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_aws_cloud;strokeColor=#AAB7B8;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#AAB7B8;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="140" y="60" width="1030" height="810" as="geometry" />
+        </mxCell>
+
+        <!-- Region -->
+        <mxCell id="region" value="Region (eu-west-1)" style="sketch=0;outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_region;strokeColor=#00A4A6;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#007F7F;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="160" y="100" width="990" height="750" as="geometry" />
+        </mxCell>
+
+        <!-- VPC -->
+        <mxCell id="vpc" value="VPC (10.0.0.0/16)" style="sketch=0;outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_vpc;strokeColor=#8C4FFF;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#AAB7B8;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="180" y="140" width="580" height="540" as="geometry" />
+        </mxCell>
+
+        <!-- Availability Zone -->
+        <mxCell id="az1" value="Availability Zone (eu-west-1a)" style="sketch=0;outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_availability_zone;strokeColor=#00A4A6;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#007F7F;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="200" y="180" width="540" height="480" as="geometry" />
+        </mxCell>
+
+        <!-- Public Subnet -->
+        <mxCell id="public-subnet" value="Public Subnet (10.0.1.0/24)" style="sketch=0;outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_public_subnet;strokeColor=#7AA116;fillColor=#E9F3E6;verticalAlign=top;align=left;spacingLeft=30;fontColor=#248814;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="220" y="220" width="500" height="420" as="geometry" />
+        </mxCell>
+
+        <!-- Security Group -->
+        <mxCell id="sg" value="Security Group&#xa;Inbound: TCP 5000, TCP 22&#xa;Outbound: All traffic" style="sketch=0;outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=11;fontStyle=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_security_group;strokeColor=#DD344C;fillColor=#FFEBEE;verticalAlign=top;align=left;spacingLeft=30;fontColor=#DD344C;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="250" y="270" width="450" height="350" as="geometry" />
+        </mxCell>
+
+        <!-- EC2 Instance Icon -->
+        <mxCell id="ec2" value="EC2 Instance&#xa;(t3.medium)" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.ec2;" vertex="1" parent="1">
+          <mxGeometry x="280" y="350" width="78" height="78" as="geometry" />
+        </mxCell>
+
+        <!-- Flask Web UI -->
+        <mxCell id="flask" value="Flask Web UI&#xa;(Port 5000)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="400" y="330" width="130" height="45" as="geometry" />
+        </mxCell>
+
+        <!-- Video Processor (ffmpeg) -->
+        <mxCell id="processor" value="Video Processor&#xa;(ffmpeg)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="400" y="395" width="130" height="45" as="geometry" />
+        </mxCell>
+
+        <!-- S3 Client (boto3) -->
+        <mxCell id="s3client" value="S3 Client&#xa;(boto3)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="400" y="460" width="130" height="45" as="geometry" />
+        </mxCell>
+
+        <!-- S3 Poller (optional) -->
+        <mxCell id="poller" value="S3 Poller&#xa;(optional)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;fontStyle=0;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="400" y="525" width="130" height="45" as="geometry" />
+        </mxCell>
+
+        <!-- Processing modes box -->
+        <mxCell id="modes-box" value="Processing Modes:&#xa;- Frame Extraction&#xa;- Thumbnail Generation&#xa;- Video Transcoding&#xa;- All (combined)" style="text;html=1;strokeColor=#d6b656;fillColor=#fff2cc;align=left;verticalAlign=top;whiteSpace=wrap;rounded=1;fontSize=10;fontColor=#333333;spacingLeft=5;spacingTop=3;" vertex="1" parent="1">
+          <mxGeometry x="555" y="370" width="130" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Deploy options -->
+        <mxCell id="deploy-box" value="Deploy: systemd or Docker" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#666666;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="545" y="480" width="140" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Internal arrows (EC2 to app components) -->
+        <mxCell id="a-ec2-flask" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#666666;" edge="1" parent="1" source="ec2" target="flask">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a-flask-proc" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#666666;" edge="1" parent="1" source="flask" target="processor">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a-proc-s3c" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#666666;" edge="1" parent="1" source="processor" target="s3client">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ====== OUTSIDE VPC ====== -->
+
+        <!-- S3 Input Bucket -->
+        <mxCell id="s3-input" value="S3 Input Bucket&#xa;(raw videos)" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#7AA116;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;" vertex="1" parent="1">
+          <mxGeometry x="870" y="200" width="78" height="78" as="geometry" />
+        </mxCell>
+
+        <!-- S3 Output Bucket -->
+        <mxCell id="s3-output" value="S3 Output Bucket&#xa;(processed files)" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#7AA116;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.s3;" vertex="1" parent="1">
+          <mxGeometry x="870" y="520" width="78" height="78" as="geometry" />
+        </mxCell>
+
+        <!-- IAM Role -->
+        <mxCell id="iam-role" value="IAM Instance Role&#xa;(S3 Read/Write)" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#DD344C;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.identity_and_access_management;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="370" width="78" height="78" as="geometry" />
+        </mxCell>
+
+        <!-- ====== DATA FLOW ARROWS ====== -->
+
+        <!-- User to EC2 (via Internet) -->
+        <mxCell id="a-user-ec2" value="HTTP :5000" style="endArrow=classic;html=1;rounded=1;strokeWidth=2;strokeColor=#232F3E;fontColor=#232F3E;fontSize=10;" edge="1" parent="1" source="user" target="ec2">
+          <mxGeometry x="0.1" y="10" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- EC2 (S3 Client) to S3 Input: download raw videos -->
+        <mxCell id="a-ec2-s3in" value="Download&#xa;raw video" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#7AA116;fontColor=#248814;fontSize=10;" edge="1" parent="1" source="s3client" target="s3-input">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="770" y="240" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- EC2 (S3 Client) to S3 Output: upload processed -->
+        <mxCell id="a-ec2-s3out" value="Upload&#xa;processed files" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#7AA116;fontColor=#248814;fontSize=10;" edge="1" parent="1" source="s3client" target="s3-output">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="770" y="560" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- IAM to EC2 (role attachment) -->
+        <mxCell id="a-iam-ec2" value="Assumes Role" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#DD344C;fontColor=#DD344C;fontSize=10;dashed=1;dashPattern=8 8;" edge="1" parent="1" source="iam-role" target="sg">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- IAM grants to S3 input -->
+        <mxCell id="a-iam-s3in" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#DD344C;dashed=1;dashPattern=4 4;" edge="1" parent="1" source="iam-role" target="s3-input">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- IAM grants to S3 output -->
+        <mxCell id="a-iam-s3out" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=1;strokeColor=#DD344C;dashed=1;dashPattern=4 4;" edge="1" parent="1" source="iam-role" target="s3-output">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ====== LEGEND ====== -->
+        <mxCell id="legend-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;" vertex="1" parent="1">
+          <mxGeometry x="820" y="720" width="310" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-title" value="Legend" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="830" y="722" width="60" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="leg-c1" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ED7100;strokeColor=#ED7100;" vertex="1" parent="1">
+          <mxGeometry x="830" y="748" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-c1t" value="Compute (EC2)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="850" y="745" width="90" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="leg-c2" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#7AA116;strokeColor=#7AA116;" vertex="1" parent="1">
+          <mxGeometry x="830" y="768" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-c2t" value="Storage (S3)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="850" y="765" width="90" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="leg-c3" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DD344C;strokeColor=#DD344C;" vertex="1" parent="1">
+          <mxGeometry x="830" y="788" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-c3t" value="Security (IAM)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="850" y="785" width="90" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="leg-c4" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#8C4FFF;strokeColor=#8C4FFF;" vertex="1" parent="1">
+          <mxGeometry x="830" y="808" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-c4t" value="Networking (VPC)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="850" y="805" width="100" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- Second legend column -->
+        <mxCell id="leg-sg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFEBEE;strokeColor=#DD344C;" vertex="1" parent="1">
+          <mxGeometry x="970" y="748" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-sgt" value="Security Group" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="990" y="745" width="90" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="leg-ps" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E9F3E6;strokeColor=#7AA116;" vertex="1" parent="1">
+          <mxGeometry x="970" y="768" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-pst" value="Public Subnet" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="990" y="765" width="90" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="leg-app" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="970" y="788" width="14" height="14" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-appt" value="Application" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="990" y="785" width="90" height="20" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
