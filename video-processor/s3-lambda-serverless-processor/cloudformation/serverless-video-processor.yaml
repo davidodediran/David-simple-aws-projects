@@ -14,7 +14,11 @@ Parameters:
 
   FFmpegLayerArn:
     Type: String
+    Default: ''
     Description: ARN of the ffmpeg Lambda layer (built by deploy.sh)
+
+Conditions:
+  HasFFmpegLayer: !Not [!Equals [!Ref FFmpegLayerArn, '']]
 
 Resources:
 
@@ -209,8 +213,10 @@ Resources:
           # Placeholder - deploy actual code via aws lambda update-function-code
           def handler(event, context):
               return {"statusCode": 200, "body": "Deploy processor code"}
-      Layers:
-        - !Ref FFmpegLayerArn
+      Layers: !If
+        - HasFFmpegLayer
+        - - !Ref FFmpegLayerArn
+        - !Ref AWS::NoValue
       Environment:
         Variables:
           OUTPUT_BUCKET: !Ref OutputBucket
