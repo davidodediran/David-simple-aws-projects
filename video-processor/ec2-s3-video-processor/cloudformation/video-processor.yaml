@@ -114,7 +114,8 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Effect: Allow
+          - Sid: AllowAppBuckets
+            Effect: Allow
             Principal: '*'
             Action:
               - s3:GetObject
@@ -126,6 +127,17 @@ Resources:
               - !Sub arn:aws:s3:::${EnvironmentName}-input-${AWS::AccountId}/*
               - !Sub arn:aws:s3:::${EnvironmentName}-output-${AWS::AccountId}
               - !Sub arn:aws:s3:::${EnvironmentName}-output-${AWS::AccountId}/*
+          - Sid: AllowAmazonLinuxRepos
+            Effect: Allow
+            Principal: '*'
+            Action:
+              - s3:GetObject
+              - s3:ListBucket
+            Resource:
+              - arn:aws:s3:::amazonlinux-2-repos-*
+              - arn:aws:s3:::amazonlinux-2-repos-*/*
+              - arn:aws:s3:::al2023-repos-*
+              - arn:aws:s3:::al2023-repos-*/*
 
   # ==================== SECURITY ====================
 
