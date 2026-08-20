@@ -72,8 +72,7 @@ aws cloudformation deploy \
   --stack-name "$STACK_NAME" \
   --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
   --region "$REGION" \
-  --no-fail-on-empty-changeset \
-  --parameter-overrides FFmpegLayerArn="$FFMPEG_LAYER_ARN"
+  --no-fail-on-empty-changeset
 
 echo ""
 echo "=== [3/5] Reading stack outputs ==="
@@ -111,6 +110,22 @@ aws lambda update-function-code \
   --region "$REGION" \
   --no-cli-pager
 echo "  Processor Lambda deployed."
+
+echo "  Waiting for processor function update..."
+aws lambda wait function-updated \
+  --function-name "$PROCESSOR_NAME" \
+  --region "$REGION"
+
+# Attach FFmpeg layer to processor
+echo "  Attaching FFmpeg layer to processor..."
+aws lambda update-function-configuration \
+  --function-name "$PROCESSOR_NAME" \
+  --layers "$FFMPEG_LAYER_ARN" \
+  --region "$REGION" \
+  --no-cli-pager \
+  --output text \
+  --query 'FunctionName'
+echo "  FFmpeg layer attached."
 
 # Package and deploy API Lambda
 cd "$SCRIPT_DIR/lambda/api"
