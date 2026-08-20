@@ -15,16 +15,68 @@ echo "  Region: $REGION"
 echo "=========================================="
 echo ""
 
-echo "=== [1/4] Deploying CloudFormation stack ==="
+# --- Step 1: Build FFmpeg Lambda Layer ---
+echo "=== [1/5] Building FFmpeg Lambda Layer ==="
+
+LAYER_NAME="${STACK_NAME}-ffmpeg"
+LAYER_DIR=$(mktemp -d)
+
+# Check if layer already exists in this region
+EXISTING_LAYER_ARN=$(aws lambda list-layer-versions \
+  --layer-name "$LAYER_NAME" \
+  --region "$REGION" \
+  --query 'LayerVersions[0].LayerVersionArn' \
+  --output text 2>/dev/null || echo "None")
+
+if [ "$EXISTING_LAYER_ARN" != "None" ] && [ -n "$EXISTING_LAYER_ARN" ]; then
+  echo "  FFmpeg layer already exists: $EXISTING_LAYER_ARN"
+  FFMPEG_LAYER_ARN="$EXISTING_LAYER_ARN"
+else
+  echo "  Downloading ffmpeg static build..."
+  curl -sL "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz" \
+    -o "$LAYER_DIR/ffmpeg.tar.xz"
+
+  echo "  Extracting ffmpeg and ffprobe..."
+  mkdir -p "$LAYER_DIR/layer/bin"
+  tar xf "$LAYER_DIR/ffmpeg.tar.xz" -C "$LAYER_DIR/layer/bin" \
+    --strip-components=1 \
+    --no-anchored ffmpeg ffprobe
+  chmod +x "$LAYER_DIR/layer/bin/ffmpeg" "$LAYER_DIR/layer/bin/ffprobe"
+
+  echo "  Packaging layer zip..."
+  cd "$LAYER_DIR/layer"
+  zip -r9 "$LAYER_DIR/ffmpeg-layer.zip" bin/ -q
+  cd "$SCRIPT_DIR"
+
+  echo "  Publishing Lambda layer..."
+  FFMPEG_LAYER_ARN=$(aws lambda publish-layer-version \
+    --layer-name "$LAYER_NAME" \
+    --description "FFmpeg static build for video processing" \
+    --zip-file "fileb://$LAYER_DIR/ffmpeg-layer.zip" \
+    --compatible-runtimes python3.12 python3.11 python3.10 \
+    --compatible-architectures x86_64 \
+    --region "$REGION" \
+    --query 'LayerVersionArn' \
+    --output text)
+
+  echo "  Published layer: $FFMPEG_LAYER_ARN"
+fi
+
+rm -rf "$LAYER_DIR"
+
+# --- Step 2: Deploy CloudFormation stack ---
+echo ""
+echo "=== [2/5] Deploying CloudFormation stack ==="
 aws cloudformation deploy \
   --template-file "$SCRIPT_DIR/cloudformation/serverless-video-processor.yaml" \
   --stack-name "$STACK_NAME" \
   --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
   --region "$REGION" \
-  --no-fail-on-empty-changeset
+  --no-fail-on-empty-changeset \
+  --parameter-overrides FFmpegLayerArn="$FFMPEG_LAYER_ARN"
 
 echo ""
-echo "=== [2/4] Reading stack outputs ==="
+echo "=== [3/5] Reading stack outputs ==="
 OUTPUTS=$(aws cloudformation describe-stacks \
   --stack-name "$STACK_NAME" \
   --region "$REGION" \
@@ -48,7 +100,7 @@ echo "  Processor:     $PROCESSOR_NAME"
 echo "  API function:  $API_NAME"
 
 echo ""
-echo "=== [3/4] Deploying Lambda function code ==="
+echo "=== [4/5] Deploying Lambda function code ==="
 
 # Package and deploy processor Lambda
 cd "$SCRIPT_DIR/lambda/processor"
@@ -71,7 +123,7 @@ aws lambda update-function-code \
 echo "  API Lambda deployed."
 
 echo ""
-echo "=== [4/4] Deploying frontend ==="
+echo "=== [5/5] Deploying frontend ==="
 
 # Inject API URL into frontend and upload
 cd "$SCRIPT_DIR/frontend"
