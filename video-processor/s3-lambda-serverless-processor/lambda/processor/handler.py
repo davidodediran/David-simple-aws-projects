@@ -35,26 +35,29 @@ def handler(event, context):
         key = unquote_plus(record["s3"]["object"]["key"])
         size = record["s3"]["object"].get("size", 0)
 
-        job_id = str(uuid.uuid4())[:8]
+        # Extract job_id from the S3 key: uploads/{job_id}/filename
+        parts = key.split("/")
+        if len(parts) >= 3 and parts[0] == "uploads":
+            job_id = parts[1]
+        else:
+            job_id = str(uuid.uuid4())[:8]
+
         logger.info("Job %s: processing s3://%s/%s (%d bytes)", job_id, bucket, key, size)
 
-        head = s3.head_object(Bucket=bucket, Key=key)
-        metadata = head.get("Metadata", {})
-        mode = metadata.get("processing-mode", "all")
-        original_name = metadata.get("original-filename", key.split("/")[-1])
+        # Read mode from DynamoDB (set by API Lambda at upload time)
+        existing = table.get_item(Key={"job_id": job_id}).get("Item", {})
+        mode = existing.get("mode", "all")
+        original_name = existing.get("original_filename", key.split("/")[-1])
 
         if mode not in ("frames", "thumbnails", "transcode", "all"):
             mode = "all"
 
-        table.put_item(Item={
-            "job_id": job_id,
-            "status": "processing",
-            "mode": mode,
-            "original_filename": original_name,
-            "input_key": key,
-            "input_size": size,
-            "outputs": [],
-        })
+        table.update_item(
+            Key={"job_id": job_id},
+            UpdateExpression="SET #s = :s, input_size = :sz",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={":s": "processing", ":sz": size},
+        )
 
         try:
             outputs = _process(bucket, key, job_id, mode)

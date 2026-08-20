@@ -69,18 +69,30 @@ def _handle_upload(event):
             "Bucket": INPUT_BUCKET,
             "Key": s3_key,
             "ContentType": content_type,
-            "Metadata": {
-                "processing-mode": mode,
-                "original-filename": filename,
-            },
         },
         ExpiresIn=3600,
     )
+
+    # Store metadata in DynamoDB instead of S3 object metadata
+    # to avoid requiring x-amz-meta-* headers on the client PUT
+    table = dynamodb.Table(TABLE_NAME)
+    import time
+    table.put_item(Item={
+        "job_id": upload_id,
+        "status": "pending",
+        "mode": mode,
+        "original_filename": filename,
+        "input_key": s3_key,
+        "content_type": content_type,
+        "created_at": int(time.time()),
+        "ttl": int(time.time()) + 86400 * 7,
+    })
 
     return _response(200, {
         "upload_url": presigned,
         "upload_id": upload_id,
         "key": s3_key,
+        "content_type": content_type,
         "expires_in": 3600,
     })
 
