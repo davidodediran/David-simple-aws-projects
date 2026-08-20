@@ -1,0 +1,434 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Serverless Image Processor - S3 static site + Lambda (VPC) + API Gateway + S3 Gateway Endpoint
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: image-processor
+    Description: Name prefix for all resources
+
+  PresignExpirySeconds:
+    Type: Number
+    Default: 3600
+    Description: Pre-signed URL expiry in seconds (default 1 hour)
+
+Conditions:
+  AlwaysTrue: !Equals ['true', 'true']
+
+Resources:
+
+  # ==================== NETWORKING (VPC for Lambda) ====================
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.0.1.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-private-a
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.0.2.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-private-b
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-private-rt
+
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetA
+
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnetB
+
+  # ==================== S3 VPC GATEWAY ENDPOINT ====================
+
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PrivateRouteTable
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+              - s3:DeleteObject
+            Resource:
+              - !Sub arn:aws:s3:::${EnvironmentName}-output-${AWS::AccountId}
+              - !Sub arn:aws:s3:::${EnvironmentName}-output-${AWS::AccountId}/*
+              - !Sub arn:aws:s3:::${EnvironmentName}-website-${AWS::AccountId}
+              - !Sub arn:aws:s3:::${EnvironmentName}-website-${AWS::AccountId}/*
+
+  # ==================== CLOUDWATCH LOGS VPC ENDPOINT ====================
+
+  CloudWatchLogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.logs
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+      PrivateDnsEnabled: true
+
+  # ==================== SECURITY GROUPS ====================
+
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for image processor Lambda
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound (S3 via gateway endpoint)
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-lambda-sg
+
+  VPCEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for VPC interface endpoints
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+          Description: HTTPS from Lambda
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpce-sg
+
+  # ==================== S3 BUCKETS ====================
+
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvironmentName}-website-${AWS::AccountId}
+      WebsiteConfiguration:
+        IndexDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-website
+
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub ${WebsiteBucket.Arn}/*
+
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvironmentName}-output-${AWS::AccountId}
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireProcessedImages
+            Status: Enabled
+            ExpirationInDays: 7
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-output
+
+  # ==================== BUCKET CLEANUP (stack deletion) ====================
+
+  BucketCleanupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-bucket-cleanup-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: EmptyBuckets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:ListBucketVersions
+                Resource:
+                  - !GetAtt WebsiteBucket.Arn
+                  - !GetAtt OutputBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                Resource:
+                  - !Sub ${WebsiteBucket.Arn}/*
+                  - !Sub ${OutputBucket.Arn}/*
+
+  BucketCleanupFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${EnvironmentName}-bucket-cleanup
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt BucketCleanupRole.Arn
+      Timeout: 300
+      MemorySize: 128
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+
+          s3 = boto3.client('s3')
+
+          def empty_bucket(bucket_name):
+              print(f'Emptying bucket: {bucket_name}')
+              paginator = s3.get_paginator('list_object_versions')
+              for page in paginator.paginate(Bucket=bucket_name):
+                  objects = []
+                  for v in page.get('Versions', []):
+                      objects.append({'Key': v['Key'], 'VersionId': v['VersionId']})
+                  for m in page.get('DeleteMarkers', []):
+                      objects.append({'Key': m['Key'], 'VersionId': m['VersionId']})
+                  if objects:
+                      s3.delete_objects(Bucket=bucket_name, Delete={'Objects': objects, 'Quiet': True})
+                      print(f'Deleted {len(objects)} objects/markers')
+
+          def handler(event, context):
+              try:
+                  if event['RequestType'] == 'Delete':
+                      buckets = event['ResourceProperties']['BucketNames']
+                      for bucket in buckets:
+                          try:
+                              empty_bucket(bucket)
+                          except Exception as e:
+                              print(f'Error emptying {bucket}: {e}')
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  print(f'Error: {e}')
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+
+  CleanupBucketsOnDelete:
+    Type: Custom::EmptyBuckets
+    Properties:
+      ServiceToken: !GetAtt BucketCleanupFunction.Arn
+      BucketNames:
+        - !Ref WebsiteBucket
+        - !Ref OutputBucket
+
+  # ==================== IAM ====================
+
+  ProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-processor-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadWriteOutputBucket
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource: !Sub ${OutputBucket.Arn}/*
+              - Sid: ListOutputBucket
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt OutputBucket.Arn
+
+  # ==================== LAMBDA FUNCTION ====================
+
+  ProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${EnvironmentName}-processor
+      Runtime: python3.12
+      Handler: handler.handler
+      Role: !GetAtt ProcessorRole.Arn
+      Timeout: 60
+      MemorySize: 1024
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {"statusCode": 200, "body": "Deploy processor code"}
+      Environment:
+        Variables:
+          OUTPUT_BUCKET: !Ref OutputBucket
+          PRESIGN_EXPIRY_SECONDS: !Ref PresignExpirySeconds
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-processor
+
+  # ==================== API GATEWAY ====================
+
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub ${EnvironmentName}-api
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+        MaxAge: 3600
+
+  HttpApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ProcessorFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  HttpApiRouteProcess:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: POST /process
+      Target: !Sub integrations/${HttpApiIntegration}
+
+  HttpApiRouteResults:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /results/{proxy+}
+      Target: !Sub integrations/${HttpApiIntegration}
+
+  HttpApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: '$default'
+      AutoDeploy: true
+
+  LambdaApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ProcessorFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*
+
+Outputs:
+  ApiGatewayURL:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
+
+  WebsiteBucketName:
+    Description: S3 website bucket name
+    Value: !Ref WebsiteBucket
+
+  WebsiteURL:
+    Description: Static website URL
+    Value: !GetAtt WebsiteBucket.WebsiteURL
+
+  OutputBucketName:
+    Description: S3 output bucket name
+    Value: !Ref OutputBucket
+
+  ProcessorFunctionName:
+    Description: Lambda function name
+    Value: !Ref ProcessorFunction
+
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+
+  S3GatewayEndpointId:
+    Description: S3 VPC Gateway Endpoint ID
+    Value: !Ref S3GatewayEndpoint
