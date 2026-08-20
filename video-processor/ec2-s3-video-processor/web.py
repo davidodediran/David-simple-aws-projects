@@ -39,7 +39,8 @@ if not LOCAL_MODE:
 if LOCAL_MODE:
     logger.info("Running in LOCAL mode - files served from disk, no S3")
 
-# In-memory job tracker (use a database for production at scale)
+# In-memory job tracker shared across threads within a single worker.
+# Gunicorn must run with 1 worker + threads (not multiple workers) for this to work.
 jobs = {}
 
 
