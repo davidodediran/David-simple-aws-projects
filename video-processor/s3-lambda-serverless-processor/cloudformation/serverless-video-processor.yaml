@@ -180,10 +180,11 @@ Resources:
                 Action:
                   - s3:GetObject
                 Resource: !Sub ${OutputBucket.Arn}/*
-              - Sid: DynamoDBRead
+              - Sid: DynamoDBAccess
                 Effect: Allow
                 Action:
                   - dynamodb:GetItem
+                  - dynamodb:PutItem
                   - dynamodb:Scan
                 Resource: !GetAtt JobsTable.Arn
 
