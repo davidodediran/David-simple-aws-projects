@@ -13,12 +13,14 @@ import uuid
 from decimal import Decimal
 
 import boto3
+from botocore.config import Config
 from boto3.dynamodb.conditions import Attr
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-s3 = boto3.client("s3")
+AWS_REGION = os.environ.get("AWS_REGION", "eu-west-1")
+s3 = boto3.client("s3", region_name=AWS_REGION, config=Config(signature_version="s3v4"))
 dynamodb = boto3.resource("dynamodb")
 
 INPUT_BUCKET = os.environ["INPUT_BUCKET"]
