@@ -330,6 +330,136 @@ Resources:
         - Key: Name
           Value: !Sub ${EnvironmentName}-api
 
+  # ==================== CLEANUP (Stack Deletion) ====================
+
+  CleanupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CleanupPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: EmptyBuckets
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                  - s3:ListBucketVersions
+                Resource:
+                  - !Sub arn:aws:s3:::${EnvironmentName}-input-${AWS::AccountId}
+                  - !Sub arn:aws:s3:::${EnvironmentName}-input-${AWS::AccountId}/*
+                  - !Sub arn:aws:s3:::${EnvironmentName}-output-${AWS::AccountId}
+                  - !Sub arn:aws:s3:::${EnvironmentName}-output-${AWS::AccountId}/*
+                  - !Sub arn:aws:s3:::${EnvironmentName}-website-${AWS::AccountId}
+                  - !Sub arn:aws:s3:::${EnvironmentName}-website-${AWS::AccountId}/*
+              - Sid: CleanupLayerBucket
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:DeleteObject
+                  - s3:DeleteBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${AWS::StackName}-layers-${AWS::AccountId}
+                  - !Sub arn:aws:s3:::${AWS::StackName}-layers-${AWS::AccountId}/*
+              - Sid: DeleteLambdaLayer
+                Effect: Allow
+                Action:
+                  - lambda:ListLayerVersions
+                  - lambda:DeleteLayerVersion
+                Resource:
+                  - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:${AWS::StackName}-ffmpeg
+                  - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:${AWS::StackName}-ffmpeg:*
+
+  CleanupFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${EnvironmentName}-cleanup
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt CleanupRole.Arn
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+
+          s3 = boto3.client('s3')
+          lam = boto3.client('lambda')
+
+          def empty_bucket(bucket):
+              try:
+                  paginator = s3.get_paginator('list_objects_v2')
+                  for page in paginator.paginate(Bucket=bucket):
+                      objects = [{'Key': obj['Key']} for obj in page.get('Contents', [])]
+                      if objects:
+                          s3.delete_objects(Bucket=bucket, Delete={'Objects': objects})
+                  print(f'Emptied bucket: {bucket}')
+              except s3.exceptions.NoSuchBucket:
+                  print(f'Bucket not found (already deleted): {bucket}')
+              except Exception as e:
+                  print(f'Error emptying {bucket}: {e}')
+
+          def delete_bucket(bucket):
+              try:
+                  empty_bucket(bucket)
+                  s3.delete_bucket(Bucket=bucket)
+                  print(f'Deleted bucket: {bucket}')
+              except Exception as e:
+                  print(f'Error deleting bucket {bucket}: {e}')
+
+          def delete_layer(layer_name):
+              try:
+                  versions = lam.list_layer_versions(LayerName=layer_name)
+                  for v in versions.get('LayerVersions', []):
+                      lam.delete_layer_version(
+                          LayerName=layer_name,
+                          VersionNumber=v['Version']
+                      )
+                      print(f'Deleted layer version: {layer_name}:{v["Version"]}')
+              except lam.exceptions.ResourceNotFoundException:
+                  print(f'Layer not found (already deleted): {layer_name}')
+              except Exception as e:
+                  print(f'Error deleting layer {layer_name}: {e}')
+
+          def handler(event, context):
+              try:
+                  if event['RequestType'] == 'Delete':
+                      props = event['ResourceProperties']
+                      for bucket in props.get('BucketsToEmpty', []):
+                          empty_bucket(bucket)
+                      layer_bucket = props.get('LayerBucket', '')
+                      if layer_bucket:
+                          delete_bucket(layer_bucket)
+                      layer_name = props.get('LayerName', '')
+                      if layer_name:
+                          delete_layer(layer_name)
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  print(e)
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+
+  CleanupTrigger:
+    Type: Custom::Cleanup
+    Properties:
+      ServiceToken: !GetAtt CleanupFunction.Arn
+      BucketsToEmpty:
+        - !Ref InputBucket
+        - !Ref OutputBucket
+        - !Ref WebsiteBucket
+      LayerBucket: !Sub ${AWS::StackName}-layers-${AWS::AccountId}
+      LayerName: !Sub ${AWS::StackName}-ffmpeg
+
   # ==================== API GATEWAY ====================
 
   ApiGateway:
