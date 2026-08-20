@@ -19,6 +19,7 @@ Parameters:
 
 Conditions:
   UseCustomFFmpegLayer: !Not [!Equals [!Ref FFmpegLayerArn, '']]
+  BuildFFmpegLayer: !Equals [!Ref FFmpegLayerArn, '']
 
 Resources:
 
@@ -197,6 +198,119 @@ Resources:
 
   # ==================== LAMBDA FUNCTIONS ====================
 
+  FFmpegLayerBuilderRole:
+    Type: AWS::IAM::Role
+    Condition: BuildFFmpegLayer
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: PublishLayer
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:PublishLayerVersion
+                  - lambda:DeleteLayerVersion
+                  - lambda:GetLayerVersion
+                Resource: '*'
+
+  FFmpegLayerBuilderFunction:
+    Type: AWS::Lambda::Function
+    Condition: BuildFFmpegLayer
+    Properties:
+      FunctionName: !Sub ${EnvironmentName}-ffmpeg-layer-builder
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt FFmpegLayerBuilderRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      EphemeralStorage:
+        Size: 1024
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import subprocess
+          import zipfile
+          import cfnresponse
+          import boto3
+          import urllib.request
+
+          lam = boto3.client('lambda')
+
+          def handler(event, context):
+              try:
+                  layer_name = event['ResourceProperties']['LayerName']
+
+                  if event['RequestType'] == 'Delete':
+                      # Best effort cleanup
+                      try:
+                          arn = event.get('PhysicalResourceId', '')
+                          if ':layer:' in arn:
+                              parts = arn.rsplit(':', 1)
+                              lam.delete_layer_version(LayerName=parts[0], VersionNumber=int(parts[1]))
+                      except Exception as e:
+                          print(f'Delete cleanup: {e}')
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                      return
+
+                  # Download static ffmpeg build
+                  url = 'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz'
+                  tar_path = '/tmp/ffmpeg.tar.xz'
+                  print(f'Downloading {url}')
+                  urllib.request.urlretrieve(url, tar_path)
+
+                  # Extract ffmpeg and ffprobe binaries
+                  os.makedirs('/tmp/layer/bin', exist_ok=True)
+                  subprocess.run(['tar', 'xf', tar_path, '-C', '/tmp/layer/bin',
+                                  '--wildcards', '*/ffmpeg', '*/ffprobe',
+                                  '--strip-components=1'], check=True)
+                  subprocess.run(['chmod', '+x', '/tmp/layer/bin/ffmpeg', '/tmp/layer/bin/ffprobe'], check=True)
+
+                  # Create layer zip
+                  zip_path = '/tmp/ffmpeg-layer.zip'
+                  with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                      for root, dirs, files in os.walk('/tmp/layer'):
+                          for f in files:
+                              full = os.path.join(root, f)
+                              arcname = os.path.relpath(full, '/tmp/layer')
+                              zf.write(full, arcname)
+
+                  # Publish as Lambda layer
+                  with open(zip_path, 'rb') as f:
+                      resp = lam.publish_layer_version(
+                          LayerName=layer_name,
+                          Description='FFmpeg static build for video processing',
+                          Content={'ZipFile': f.read()},
+                          CompatibleRuntimes=['python3.12', 'python3.11', 'python3.10'],
+                          CompatibleArchitectures=['x86_64'],
+                      )
+
+                  layer_arn = resp['LayerVersionArn']
+                  print(f'Published layer: {layer_arn}')
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS,
+                                   {'LayerArn': layer_arn}, layer_arn)
+
+              except Exception as e:
+                  print(f'Error: {e}')
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+
+  FFmpegLayer:
+    Type: Custom::FFmpegLayer
+    Condition: BuildFFmpegLayer
+    Properties:
+      ServiceToken: !GetAtt FFmpegLayerBuilderFunction.Arn
+      LayerName: !Sub ${EnvironmentName}-ffmpeg
+
   ProcessorFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -217,7 +331,7 @@ Resources:
         - !If
           - UseCustomFFmpegLayer
           - !Ref FFmpegLayerArn
-          - !Sub arn:aws:lambda:${AWS::Region}:653103516076:layer:ffmpeg:2
+          - !GetAtt FFmpegLayer.LayerArn
       Environment:
         Variables:
           OUTPUT_BUCKET: !Ref OutputBucket
