@@ -35,7 +35,7 @@ echo ""
 echo "=== [1/7] Installing system dependencies ==="
 if command -v dnf &>/dev/null; then
     sudo dnf update -y
-    sudo dnf install -y python3.11 python3.11-pip git tar xz curl
+    sudo dnf install -y python3.11 python3.11-pip git tar xz
     PY=python3.11
 elif command -v apt-get &>/dev/null; then
     sudo apt-get update -y

@@ -234,7 +234,7 @@ Resources:
           exec > /var/log/video-processor-setup.log 2>&1
 
           # Download and run the setup script with the stack name
-          dnf install -y git curl
+          dnf install -y git
           git clone --depth 1 https://github.com/davidodediran/David-simple-aws-projects.git /tmp/repo
           bash /tmp/repo/video-processor/ec2-s3-video-processor/setup-ec2.sh --stack ${AWS::StackName}
           rm -rf /tmp/repo
