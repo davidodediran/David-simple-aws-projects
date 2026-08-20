@@ -23,12 +23,21 @@
       "Resource": "arn:aws:s3:::my-video-input-bucket/*"
     },
     {
-      "Sid": "WriteOutputBucket",
+      "Sid": "ReadWriteOutputBucket",
       "Effect": "Allow",
       "Action": [
-        "s3:PutObject"
+        "s3:PutObject",
+        "s3:GetObject"
       ],
       "Resource": "arn:aws:s3:::my-video-output-bucket/*"
+    },
+    {
+      "Sid": "ListOutputBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::my-video-output-bucket"
     }
   ]
 }

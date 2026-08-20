@@ -191,11 +191,17 @@ Resources:
                 Action:
                   - s3:PutObject
                 Resource: !Sub ${InputBucket.Arn}/*
-              - Sid: WriteOutputBucket
+              - Sid: ReadWriteOutputBucket
                 Effect: Allow
                 Action:
                   - s3:PutObject
+                  - s3:GetObject
                 Resource: !Sub ${OutputBucket.Arn}/*
+              - Sid: ListOutputBucket
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt OutputBucket.Arn
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName}-ec2-role
