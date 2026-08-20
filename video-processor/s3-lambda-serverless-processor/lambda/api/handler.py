@@ -68,7 +68,6 @@ def _handle_upload(event):
         Params={
             "Bucket": INPUT_BUCKET,
             "Key": s3_key,
-            "ContentType": content_type,
         },
         ExpiresIn=3600,
     )

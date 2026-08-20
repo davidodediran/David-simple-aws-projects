@@ -474,7 +474,6 @@ async function startUpload() {
 
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', data.upload_url);
-    xhr.setRequestHeader('Content-Type', selectedFile.type || 'video/mp4');
 
     xhr.upload.addEventListener('progress', (e) => {
       if (e.lengthComputable) {
