@@ -93,7 +93,8 @@ echo "Processor Lambda deployed."
 # Step 4: Deploy frontend with API URL injected
 echo ""
 echo "--- Step 4: Deploying frontend ---"
-API_URL=$(get_output ApiGatewayURL)
+# Remove trailing slash from Function URL
+API_URL=$(get_output ApiURL | sed 's:/$::')
 WEBSITE_BUCKET=$(get_output WebsiteBucketName)
 WEBSITE_URL=$(get_output WebsiteURL)
 
@@ -110,7 +111,7 @@ rm -f "$TMPHTML"
 echo ""
 echo "=== Deployment Complete ==="
 echo ""
-echo "Website: $WEBSITE_URL"
-echo "API:     $API_URL"
+echo "Website:      $WEBSITE_URL"
+echo "API (Lambda): $API_URL"
 echo ""
 echo "Open the Website URL in your browser to start processing images."

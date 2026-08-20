@@ -8,7 +8,7 @@ A fully serverless image processing application using AWS Lambda, S3, and API Ga
 User -> S3 Website (static frontend)
               |
               v
-         API Gateway (HTTP API)
+         Lambda Function URL (HTTPS)
               |
               v
          Lambda (API) -----> S3 Data Bucket (uploads/{job_id}/image.jpg)
@@ -32,7 +32,7 @@ User -> S3 Website (static frontend)
 ### Flow
 
 1. User uploads image and selects a filter on the static site
-2. Frontend calls `POST /upload` - API Lambda returns a pre-signed PUT URL for `uploads/{job_id}/`
+2. Frontend calls `POST /upload` on the Lambda Function URL - API Lambda returns a pre-signed PUT URL for `uploads/{job_id}/`
 3. Frontend uploads the image directly to S3 using the pre-signed URL
 4. S3 event on `uploads/` prefix triggers the Processor Lambda
 5. Processor Lambda reads the image, applies Pillow filters, writes results to `processed/{job_id}/`
@@ -53,7 +53,7 @@ User -> S3 Website (static frontend)
 |---------|---------|
 | **S3** (Website) | Hosts the static frontend |
 | **S3** (Data) | Stores uploads and processed images (two prefixes, one bucket) |
-| **API Gateway** (HTTP API) | Routes to API Lambda |
+| **Lambda Function URL** | HTTPS endpoint for the API Lambda (no API Gateway needed) |
 | **Lambda** (API) | Generates pre-signed upload URLs, returns job status and result URLs |
 | **Lambda** (Processor) | Triggered by S3 event, processes images with Pillow |
 | **Lambda** (Cleanup) | Empties S3 buckets on stack deletion |
