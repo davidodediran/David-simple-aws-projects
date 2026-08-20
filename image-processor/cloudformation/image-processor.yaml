@@ -413,7 +413,9 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:PutBucketNotification
+                  - s3:PutBucketNotificationConfiguration
                   - s3:GetBucketNotification
+                  - s3:GetBucketNotificationConfiguration
                 Resource: !GetAtt DataBucket.Arn
 
   NotificationHelperFunction:
@@ -427,18 +429,21 @@ Resources:
       MemorySize: 128
       Code:
         ZipFile: |
+          import traceback
           import boto3
           import cfnresponse
 
           s3 = boto3.client('s3')
 
           def handler(event, context):
+              print(f'Event: {event}')
               try:
                   bucket = event['ResourceProperties']['Bucket']
                   lambda_arn = event['ResourceProperties']['LambdaArn']
                   prefix = event['ResourceProperties']['Prefix']
 
                   if event['RequestType'] in ['Create', 'Update']:
+                      print(f'Setting notification on {bucket} for prefix {prefix} -> {lambda_arn}')
                       s3.put_bucket_notification_configuration(
                           Bucket=bucket,
                           NotificationConfiguration={
@@ -456,20 +461,27 @@ Resources:
                               }]
                           }
                       )
+                      print('Notification configured successfully')
                   elif event['RequestType'] == 'Delete':
-                      s3.put_bucket_notification_configuration(
-                          Bucket=bucket,
-                          NotificationConfiguration={}
-                      )
+                      try:
+                          s3.put_bucket_notification_configuration(
+                              Bucket=bucket,
+                              NotificationConfiguration={}
+                          )
+                      except Exception:
+                          pass
 
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
               except Exception as e:
-                  print(f'Error: {e}')
+                  traceback.print_exc()
                   cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
 
   S3NotificationConfig:
     Type: Custom::S3Notification
-    DependsOn: ProcessorS3Permission
+    DependsOn:
+      - ProcessorS3Permission
+      - ProcessorFunction
+      - DataBucket
     Properties:
       ServiceToken: !GetAtt NotificationHelperFunction.Arn
       Bucket: !Ref DataBucket
