@@ -18,10 +18,13 @@ User -> CloudFront -> S3 (static website)
                           |              |
                           v              |
                      Lambda (Processor) -+
+                     [FFmpeg Layer]
                           |
                           v
                      S3 Output Bucket -> Pre-signed URLs (24h) -> User downloads
 ```
+
+> Open `architecture.drawio` in [app.diagrams.net](https://app.diagrams.net) for the full diagram with AWS icons.
 
 ## Services Used
 
@@ -32,6 +35,7 @@ User -> CloudFront -> S3 (static website)
 | **API Gateway** (HTTP API) | REST endpoints for upload URLs and job status |
 | **Lambda** (API) | Generates pre-signed upload URLs, returns job status |
 | **Lambda** (Processor) | Triggered by S3 events, runs ffmpeg on uploaded videos |
+| **Lambda Layer** (FFmpeg) | Static ffmpeg/ffprobe binaries, built by deploy.sh |
 | **S3** (Input Bucket) | Receives uploaded videos, triggers Lambda |
 | **S3** (Output Bucket) | Stores processed results (frames, thumbnails, transcoded video) |
 | **DynamoDB** | Tracks job status and output metadata |
@@ -53,41 +57,80 @@ User -> CloudFront -> S3 (static website)
 
 ## Deployment
 
-### Option 1: One-command deploy
+### Option 1: One-command deploy (recommended)
 
 ```bash
 chmod +x deploy.sh
-./deploy.sh
+./deploy.sh serverless-video-processor eu-west-1
 ```
 
 This will:
-1. Create the CloudFormation stack (S3 buckets, Lambda functions, API Gateway, DynamoDB, CloudFront)
-2. Deploy the Lambda function code
-3. Deploy the frontend with the API URL injected
+1. Build and publish the FFmpeg Lambda layer (skips if already exists)
+2. Deploy the CloudFormation stack
+3. Deploy the API and Processor Lambda code
+4. Attach the FFmpeg layer to the Processor Lambda
+5. Upload the frontend with the API URL injected
 
-### Option 2: Step-by-step
+### Option 2: AWS CloudShell
 
-#### Step 1: Deploy the CloudFormation stack
+If you deployed the CloudFormation template via the AWS Console, you still need to run deploy.sh to upload the Lambda code and frontend. Open CloudShell and run:
+
+```bash
+git clone https://github.com/davidodediran/David-simple-aws-projects.git
+cd David-simple-aws-projects/video-processor/s3-lambda-serverless-processor
+chmod +x deploy.sh
+./deploy.sh serverless-video-processor eu-west-1
+```
+
+The script detects the existing stack and skips to deploying the code.
+
+### Option 3: Step-by-step (manual)
+
+#### Step 1: Build the FFmpeg Lambda Layer
+
+```bash
+# Download and package ffmpeg
+mkdir -p /tmp/ffmpeg-layer/bin
+curl -sL "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz" -o /tmp/ffmpeg.tar.xz
+tar xf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg-layer/bin --strip-components=1 --no-anchored ffmpeg ffprobe
+chmod +x /tmp/ffmpeg-layer/bin/ffmpeg /tmp/ffmpeg-layer/bin/ffprobe
+
+# Zip and publish
+cd /tmp/ffmpeg-layer && zip -r9 /tmp/ffmpeg-layer.zip bin/
+aws lambda publish-layer-version \
+  --layer-name serverless-video-processor-ffmpeg \
+  --zip-file fileb:///tmp/ffmpeg-layer.zip \
+  --compatible-runtimes python3.12 python3.11 python3.10 \
+  --compatible-architectures x86_64 \
+  --region eu-west-1 \
+  --query 'LayerVersionArn' --output text
+```
+
+Note the returned Layer ARN.
+
+#### Step 2: Deploy the CloudFormation stack
 
 ```bash
 aws cloudformation deploy \
   --template-file cloudformation/serverless-video-processor.yaml \
   --stack-name serverless-video-processor \
-  --capabilities CAPABILITY_NAMED_IAM
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region eu-west-1
 ```
 
-#### Step 2: Get the stack outputs
+#### Step 3: Get the stack outputs
 
 ```bash
 aws cloudformation describe-stacks \
   --stack-name serverless-video-processor \
   --query 'Stacks[0].Outputs' \
-  --output table
+  --output table \
+  --region eu-west-1
 ```
 
 Note the `ApiGatewayURL`, `WebsiteBucketName`, `ProcessorFunctionName`, and `ApiFunctionName`.
 
-#### Step 3: Deploy Lambda code
+#### Step 4: Deploy Lambda code
 
 ```bash
 # Processor Lambda
@@ -95,32 +138,42 @@ cd lambda/processor
 zip -j /tmp/processor.zip handler.py
 aws lambda update-function-code \
   --function-name serverless-video-processor-processor \
-  --zip-file fileb:///tmp/processor.zip
+  --zip-file fileb:///tmp/processor.zip \
+  --region eu-west-1
+aws lambda wait function-updated \
+  --function-name serverless-video-processor-processor \
+  --region eu-west-1
+
+# Attach FFmpeg layer (use the ARN from Step 1)
+aws lambda update-function-configuration \
+  --function-name serverless-video-processor-processor \
+  --layers "arn:aws:lambda:eu-west-1:ACCOUNT_ID:layer:serverless-video-processor-ffmpeg:1" \
+  --region eu-west-1
 
 # API Lambda
 cd ../api
 zip -j /tmp/api.zip handler.py
 aws lambda update-function-code \
   --function-name serverless-video-processor-api \
-  --zip-file fileb:///tmp/api.zip
+  --zip-file fileb:///tmp/api.zip \
+  --region eu-west-1
 ```
 
-#### Step 4: Deploy the frontend
+#### Step 5: Deploy the frontend
 
-Edit `frontend/index.html` and set the API URL:
-
-```javascript
-const API_URL = 'https://your-api-id.execute-api.YOUR_REGION.amazonaws.com';
-```
-
-Upload to the website bucket:
+Replace `YOUR_API_URL` with the `ApiGatewayURL` from Step 3:
 
 ```bash
-aws s3 cp frontend/index.html s3://serverless-video-processor-website-ACCOUNT_ID/index.html \
-  --content-type "text/html"
+sed "s|window.CONFIG_API_URL || ''|'https://YOUR_API_ID.execute-api.eu-west-1.amazonaws.com'|g" \
+  frontend/index.html > /tmp/index-deployed.html
+
+aws s3 cp /tmp/index-deployed.html \
+  s3://serverless-video-processor-website-ACCOUNT_ID/index.html \
+  --content-type "text/html" \
+  --region eu-west-1
 ```
 
-#### Step 5: Open the website
+#### Step 6: Open the website
 
 Use the S3 website URL or CloudFront URL from the stack outputs.
 
@@ -146,18 +199,6 @@ Use the S3 website URL or CloudFront URL from the stack outputs.
 | Output retention | 30 days | S3 lifecycle rule on output bucket |
 | Input retention | 7 days | S3 lifecycle rule on input bucket |
 
-## FFmpeg Lambda Layer
-
-The template uses a public ffmpeg Lambda layer by default. To use your own:
-
-```bash
-aws cloudformation deploy \
-  --template-file cloudformation/serverless-video-processor.yaml \
-  --stack-name serverless-video-processor \
-  --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides FFmpegLayerArn=arn:aws:lambda:YOUR_REGION:123456789:layer:ffmpeg:1
-```
-
 ## Cost Estimate
 
 This is a pay-per-use architecture. When idle, costs are near zero.
@@ -174,14 +215,10 @@ This is a pay-per-use architecture. When idle, costs are near zero.
 ## Cleanup
 
 ```bash
-# Empty all buckets first
-aws s3 rm s3://serverless-video-processor-input-ACCOUNT_ID --recursive
-aws s3 rm s3://serverless-video-processor-output-ACCOUNT_ID --recursive
-aws s3 rm s3://serverless-video-processor-website-ACCOUNT_ID --recursive
-
-# Delete the stack
-aws cloudformation delete-stack --stack-name serverless-video-processor
+aws cloudformation delete-stack --stack-name serverless-video-processor --region eu-west-1
 ```
+
+The stack includes a cleanup Lambda that empties all S3 buckets automatically before deletion.
 
 ## Project Structure
 
@@ -197,5 +234,6 @@ s3-lambda-serverless-processor/
     processor/
       handler.py                      # Processor Lambda (ffmpeg, S3 events)
   deploy.sh                           # One-command deployment script
+  architecture.drawio                 # AWS architecture diagram (draw.io)
   README.md
 ```
