@@ -96,9 +96,9 @@ TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
     -H "X-aws-ec2-metadata-token-ttl-seconds: 60" 2>/dev/null || true)
 if [[ -n "$TOKEN" ]]; then
     REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
-        http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "eu-west-1")
+        http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "${AWS_DEFAULT_REGION:-us-east-1}")
 else
-    REGION="eu-west-1"
+    REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 fi
 
 INPUT_BUCKET=""

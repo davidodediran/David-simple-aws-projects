@@ -7,7 +7,7 @@ load_dotenv()
 
 
 class Config:
-    AWS_REGION = os.getenv("AWS_REGION", "eu-west-1")
+    AWS_REGION = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
     S3_INPUT_BUCKET = os.getenv("S3_INPUT_BUCKET", "my-video-input-bucket")
     S3_OUTPUT_BUCKET = os.getenv("S3_OUTPUT_BUCKET", "my-video-output-bucket")
     S3_INPUT_PREFIX = os.getenv("S3_INPUT_PREFIX", "raw/")

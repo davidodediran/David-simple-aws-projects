@@ -110,7 +110,7 @@ aws lambda update-function-code \
 Edit `frontend/index.html` and set the API URL:
 
 ```javascript
-const API_URL = 'https://your-api-id.execute-api.us-east-1.amazonaws.com';
+const API_URL = 'https://your-api-id.execute-api.YOUR_REGION.amazonaws.com';
 ```
 
 Upload to the website bucket:
@@ -155,7 +155,7 @@ aws cloudformation deploy \
   --template-file cloudformation/serverless-video-processor.yaml \
   --stack-name serverless-video-processor \
   --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides FFmpegLayerArn=arn:aws:lambda:us-east-1:123456789:layer:ffmpeg:1
+  --parameter-overrides FFmpegLayerArn=arn:aws:lambda:YOUR_REGION:123456789:layer:ffmpeg:1
 ```
 
 ## Cost Estimate

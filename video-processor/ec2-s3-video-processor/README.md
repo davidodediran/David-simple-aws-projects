@@ -32,8 +32,8 @@ S3 Input Bucket --> EC2 or Docker (CLI poller) --> ffmpeg --> S3 Output Bucket
 Create two S3 buckets in your preferred region. Replace the names with your own.
 
 ```bash
-aws s3 mb s3://my-video-input-bucket --region eu-west-1
-aws s3 mb s3://my-video-output-bucket --region eu-west-1
+aws s3 mb s3://my-video-input-bucket --region YOUR_REGION
+aws s3 mb s3://my-video-output-bucket --region YOUR_REGION
 ```
 
 ## Step 2: Create the IAM Role
@@ -94,7 +94,7 @@ Update these values:
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `AWS_REGION` | Your AWS region | `eu-west-1` |
+| `AWS_REGION` | Your AWS region | `us-east-1` |
 | `S3_INPUT_BUCKET` | Bucket for incoming videos | `my-video-input-bucket` |
 | `S3_OUTPUT_BUCKET` | Bucket for processed results | `my-video-output-bucket` |
 | `S3_INPUT_PREFIX` | Prefix (folder) to watch in the input bucket | `raw/` |
