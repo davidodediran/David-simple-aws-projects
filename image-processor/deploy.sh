@@ -39,38 +39,60 @@ aws cloudformation describe-stacks \
   --output table \
   --no-cli-pager
 
-# Step 2: Package and deploy Lambda function with Pillow
+# Step 2: Deploy API Lambda
 echo ""
-echo "--- Step 2: Packaging Lambda function with Pillow ---"
-FUNC_NAME=$(get_output ProcessorFunctionName)
+echo "--- Step 2: Deploying API Lambda ---"
+API_FUNC=$(get_output ApiFunctionName)
 TMPDIR=$(mktemp -d)
 
-pip install Pillow -t "$TMPDIR/package" --quiet --platform manylinux2014_x86_64 --only-binary=:all:
-cp "$SCRIPT_DIR/lambda/handler.py" "$TMPDIR/package/"
-cd "$TMPDIR/package"
-zip -r9 "$TMPDIR/lambda.zip" . -q
+cd "$SCRIPT_DIR/lambda/api"
+zip -j "$TMPDIR/api.zip" handler.py -q
 cd "$SCRIPT_DIR"
 
-echo "Deploying Lambda code ($FUNC_NAME)..."
 aws lambda update-function-code \
-  --function-name "$FUNC_NAME" \
-  --zip-file "fileb://$TMPDIR/lambda.zip" \
+  --function-name "$API_FUNC" \
+  --zip-file "fileb://$TMPDIR/api.zip" \
   --region "$REGION" \
   --no-cli-pager \
   --output text \
   --query 'FunctionName'
 
-echo "Waiting for function update to complete..."
+echo "Waiting for API function update..."
 aws lambda wait function-updated \
-  --function-name "$FUNC_NAME" \
+  --function-name "$API_FUNC" \
+  --region "$REGION"
+echo "API Lambda deployed."
+
+# Step 3: Deploy Processor Lambda (with Pillow)
+echo ""
+echo "--- Step 3: Deploying Processor Lambda (packaging Pillow) ---"
+PROC_FUNC=$(get_output ProcessorFunctionName)
+
+pip install Pillow -t "$TMPDIR/package" --quiet --platform manylinux2014_x86_64 --only-binary=:all:
+cp "$SCRIPT_DIR/lambda/processor/handler.py" "$TMPDIR/package/"
+cd "$TMPDIR/package"
+zip -r9 "$TMPDIR/processor.zip" . -q
+cd "$SCRIPT_DIR"
+
+aws lambda update-function-code \
+  --function-name "$PROC_FUNC" \
+  --zip-file "fileb://$TMPDIR/processor.zip" \
+  --region "$REGION" \
+  --no-cli-pager \
+  --output text \
+  --query 'FunctionName'
+
+echo "Waiting for Processor function update..."
+aws lambda wait function-updated \
+  --function-name "$PROC_FUNC" \
   --region "$REGION"
 
 rm -rf "$TMPDIR"
-echo "Lambda deployed."
+echo "Processor Lambda deployed."
 
-# Step 3: Deploy frontend with API URL injected
+# Step 4: Deploy frontend with API URL injected
 echo ""
-echo "--- Step 3: Deploying frontend ---"
+echo "--- Step 4: Deploying frontend ---"
 API_URL=$(get_output ApiGatewayURL)
 WEBSITE_BUCKET=$(get_output WebsiteBucketName)
 WEBSITE_URL=$(get_output WebsiteURL)
@@ -88,7 +110,7 @@ rm -f "$TMPHTML"
 echo ""
 echo "=== Deployment Complete ==="
 echo ""
-echo "Website URL: $WEBSITE_URL"
-echo "API URL:     $API_URL"
+echo "Website: $WEBSITE_URL"
+echo "API:     $API_URL"
 echo ""
 echo "Open the Website URL in your browser to start processing images."

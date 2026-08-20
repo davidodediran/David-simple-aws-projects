@@ -1,62 +1,78 @@
 # Serverless Image Processor
 
-A fully serverless image processing application using AWS Lambda, S3, and API Gateway. Upload an image through the static website, select a processing filter, and Lambda processes it and returns the result - all displayed on the same page.
+A fully serverless image processing application using AWS Lambda, S3, and API Gateway. Upload an image through the static website, select a filter, and Lambda processes it - results display on the same page.
 
 ## Architecture
 
 ```
-User -> S3 (static website)
-         |
-         v
-    API Gateway (HTTP API)
-         |
-         v
-    Lambda (VPC) --[S3 Gateway Endpoint]--> S3 Output Bucket
-         |                                       |
-         v                                       v
-    Process image (Pillow)              Pre-signed URL -> User views result
+User -> S3 Website (static frontend)
+              |
+              v
+         API Gateway (HTTP API)
+              |
+              v
+         Lambda (API) -----> S3 Data Bucket (uploads/{job_id}/image.jpg)
+                                    |
+                              S3 Event Trigger
+                                    |
+                                    v
+                             Lambda (Processor)
+                                    |
+                              [Pillow filters]
+                                    |
+                                    v
+                             S3 Data Bucket (processed/{job_id}/filter.jpg)
+                                    |
+                              Pre-signed URLs
+                                    |
+                                    v
+                             Frontend displays results
 ```
+
+### Flow
+
+1. User uploads image and selects a filter on the static site
+2. Frontend calls `POST /upload` - API Lambda returns a pre-signed PUT URL for `uploads/{job_id}/`
+3. Frontend uploads the image directly to S3 using the pre-signed URL
+4. S3 event on `uploads/` prefix triggers the Processor Lambda
+5. Processor Lambda reads the image, applies Pillow filters, writes results to `processed/{job_id}/`
+6. Frontend polls `GET /job/{job_id}` until results appear
+7. API Lambda lists `processed/{job_id}/` and returns pre-signed download URLs
+8. Frontend displays the processed images below the upload section
 
 ### Networking
 
-- Lambda runs inside a VPC with private subnets
-- S3 traffic flows through a VPC Gateway Endpoint (AWS PrivateLink) - never touches the public internet
+- Both Lambdas run inside a VPC with private subnets
+- S3 traffic flows through a VPC Gateway Endpoint (AWS PrivateLink)
 - CloudWatch Logs delivered via a VPC Interface Endpoint
-- No NAT Gateway needed - keeps costs near zero
+- No NAT Gateway needed
 
 ## Services Used
 
 | Service | Purpose |
 |---------|---------|
-| **S3** (Website Bucket) | Hosts the static frontend |
-| **S3** (Output Bucket) | Stores processed images (7-day lifecycle) |
-| **API Gateway** (HTTP API) | Routes POST /process and GET /results to Lambda |
-| **Lambda** (in VPC) | Receives image, applies Pillow filters, uploads results to S3 |
-| **VPC** | Private network for Lambda with S3 Gateway Endpoint |
+| **S3** (Website) | Hosts the static frontend |
+| **S3** (Data) | Stores uploads and processed images (two prefixes, one bucket) |
+| **API Gateway** (HTTP API) | Routes to API Lambda |
+| **Lambda** (API) | Generates pre-signed upload URLs, returns job status and result URLs |
+| **Lambda** (Processor) | Triggered by S3 event, processes images with Pillow |
 | **Lambda** (Cleanup) | Empties S3 buckets on stack deletion |
+| **VPC** | Private network with S3 Gateway Endpoint |
 
 ## Processing Filters
 
-| Filter | Description | Output |
-|--------|-------------|--------|
-| **Grayscale** | Convert to black and white | JPG |
-| **Thumbnail** | Resize to 300px max dimension | JPG |
-| **Blur** | Gaussian blur (radius 5) | JPG |
-| **Sepia** | Warm sepia tone | JPG |
-| **Sharpen** | Sharpen details | JPG |
-| **Edges** | Edge detection | PNG |
-| **Rotate** | Rotate 90 degrees clockwise | JPG |
-| **All** | Apply all filters | All of the above |
-
-## Prerequisites
-
-- AWS CLI configured with appropriate permissions
-- Python 3.12+ with pip
-- An AWS account
+| Filter | Description |
+|--------|-------------|
+| **Grayscale** | Convert to black and white |
+| **Thumbnail** | Resize to 300px max dimension |
+| **Blur** | Gaussian blur |
+| **Sepia** | Warm sepia tone |
+| **Sharpen** | Sharpen details |
+| **Edges** | Edge detection |
+| **Rotate** | Rotate 90 degrees clockwise |
+| **All** | Apply all filters at once |
 
 ## Deployment
-
-### One-command deploy
 
 ```bash
 chmod +x deploy.sh
@@ -69,61 +85,36 @@ With a custom stack name and region:
 ./deploy.sh my-image-processor eu-west-1
 ```
 
-This will:
-1. Create the CloudFormation stack (VPC, S3, Lambda, API Gateway, VPC endpoints)
-2. Package and deploy the Lambda function with Pillow
-3. Deploy the frontend with the API URL injected
-
-### Usage
+## Usage
 
 1. Open the Website URL printed at the end of deployment
-2. Drag and drop an image (or click to browse) - max 6 MB
-3. Select a processing filter from the dropdown
+2. Drag and drop an image (or click to browse)
+3. Select a filter from the dropdown
 4. Click **Upload & Process**
-5. View the results below - click any image to view full size
-6. Download processed images using the download links (valid for 1 hour)
-
-## Limits
-
-| Limit | Value | Notes |
-|-------|-------|-------|
-| Max image size | 6 MB | API Gateway payload limit |
-| Lambda timeout | 60 seconds | More than enough for image processing |
-| Lambda memory | 1 GB | Allocated for Pillow performance |
-| Pre-signed URL expiry | 1 hour | Configurable via PresignExpirySeconds |
-| Output retention | 7 days | S3 lifecycle rule |
-
-## Cost Estimate
-
-Near-zero when idle. S3 Gateway Endpoint is free.
-
-| Component | Cost driver |
-|-----------|-------------|
-| Lambda | ~$0.01 per 1000 images processed |
-| S3 | ~$0.023/GB/month storage |
-| API Gateway | ~$1.00 per 1M requests |
-| CloudWatch Logs VPC Endpoint | ~$7/month per AZ (~$14/month total) |
+5. Results appear below - click any image to view full size, or download
 
 ## Cleanup
 
-The stack includes a cleanup Lambda that empties all S3 buckets automatically:
+The stack includes a cleanup Lambda that empties all buckets automatically:
 
 ```bash
 aws cloudformation delete-stack --stack-name image-processor
 ```
-
-No need to manually empty buckets first.
 
 ## Project Structure
 
 ```
 image-processor/
   cloudformation/
-    image-processor.yaml    # Full infrastructure template
+    image-processor.yaml       # Full infrastructure template
   frontend/
-    index.html              # Static website (upload UI + results viewer)
+    index.html                 # Static website (upload + results)
   lambda/
-    handler.py              # Image processing Lambda (Pillow)
-  deploy.sh                 # One-command deployment script
+    api/
+      handler.py               # API Lambda (upload URLs, job status)
+    processor/
+      handler.py               # Processor Lambda (Pillow, S3 event)
+  deploy.sh                    # One-command deployment
+  architecture.drawio          # AWS architecture diagram
   README.md
 ```

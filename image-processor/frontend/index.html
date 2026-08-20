@@ -7,15 +7,13 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
-
     .container { max-width: 900px; margin: 0 auto; padding: 40px 20px; }
-
     h1 { text-align: center; font-size: 2rem; margin-bottom: 8px; background: linear-gradient(135deg, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
     .subtitle { text-align: center; color: #94a3b8; margin-bottom: 40px; }
-
     .card { background: #1e293b; border-radius: 16px; border: 1px solid #334155; padding: 32px; margin-bottom: 32px; }
 
-    .drop-zone { border: 2px dashed #475569; border-radius: 12px; padding: 48px; text-align: center; cursor: pointer; transition: all 0.3s; position: relative; }
+    /* Drop zone */
+    .drop-zone { border: 2px dashed #475569; border-radius: 12px; padding: 48px; text-align: center; cursor: pointer; transition: all 0.3s; }
     .drop-zone:hover, .drop-zone.dragover { border-color: #60a5fa; background: rgba(96, 165, 250, 0.05); }
     .drop-zone.has-file { border-color: #22c55e; border-style: solid; }
     .drop-zone svg { width: 48px; height: 48px; fill: #64748b; margin-bottom: 12px; }
@@ -23,36 +21,36 @@
     .drop-zone .filename { color: #22c55e; font-weight: 600; margin-top: 8px; }
     .drop-zone input { display: none; }
 
+    /* Preview */
     .preview-container { margin-top: 16px; text-align: center; }
     .preview-container img { max-width: 100%; max-height: 250px; border-radius: 8px; border: 1px solid #334155; }
 
+    /* Controls */
     .controls { display: flex; gap: 16px; margin-top: 24px; flex-wrap: wrap; }
     .controls select { flex: 1; min-width: 200px; padding: 12px 16px; background: #0f172a; border: 1px solid #475569; border-radius: 8px; color: #e2e8f0; font-size: 1rem; cursor: pointer; }
     .controls select:focus { outline: none; border-color: #60a5fa; }
-
     .btn { padding: 12px 32px; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: all 0.3s; }
     .btn-primary { background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: white; }
     .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4); }
     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
+    /* Processing */
     .processing { text-align: center; padding: 48px; }
     .spinner { width: 56px; height: 56px; border: 4px solid #334155; border-top-color: #60a5fa; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .processing-text { color: #94a3b8; }
     .processing-step { color: #60a5fa; font-weight: 600; margin-top: 8px; min-height: 24px; }
-
     .progress-bar { width: 100%; height: 6px; background: #334155; border-radius: 3px; margin-top: 16px; overflow: hidden; }
     .progress-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #8b5cf6); border-radius: 3px; transition: width 0.5s ease; width: 0%; }
 
+    /* Results */
     .results-title { font-size: 1.3rem; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
     .results-title .badge { background: #22c55e; color: white; font-size: 0.75rem; padding: 2px 10px; border-radius: 999px; }
-
     .results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; }
     .result-card { background: #0f172a; border-radius: 12px; border: 1px solid #334155; overflow: hidden; transition: transform 0.2s; }
     .result-card:hover { transform: translateY(-2px); }
     .result-card img { width: 100%; height: 200px; object-fit: cover; cursor: pointer; }
     .result-card .info { padding: 12px 16px; }
-    .result-card .filter-name { font-weight: 600; text-transform: capitalize; color: #e2e8f0; }
+    .result-card .filter-name { font-weight: 600; text-transform: capitalize; }
     .result-card .filter-size { color: #64748b; font-size: 0.85rem; margin-top: 2px; }
     .result-card .actions { padding: 0 16px 12px; }
     .result-card .btn-download { display: inline-block; padding: 6px 16px; font-size: 0.85rem; background: #334155; color: #e2e8f0; border-radius: 6px; text-decoration: none; transition: background 0.2s; }
@@ -61,6 +59,7 @@
     .error { background: #7f1d1d; border: 1px solid #991b1b; color: #fca5a5; padding: 16px; border-radius: 8px; margin-top: 16px; }
     .hidden { display: none !important; }
 
+    /* Modal */
     .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 100; cursor: pointer; }
     .modal img { max-width: 90vw; max-height: 90vh; border-radius: 8px; }
   </style>
@@ -78,11 +77,9 @@
         <p class="filename hidden" id="filename"></p>
         <input type="file" id="file-input" accept="image/*">
       </div>
-
       <div class="preview-container hidden" id="preview-container">
         <img id="preview-img" alt="Preview">
       </div>
-
       <div class="controls">
         <select id="mode-select">
           <option value="grayscale">Grayscale</option>
@@ -96,7 +93,6 @@
         </select>
         <button class="btn btn-primary" id="process-btn" disabled>Upload &amp; Process</button>
       </div>
-
       <div class="error hidden" id="error-msg"></div>
     </div>
 
@@ -104,7 +100,7 @@
     <div class="card hidden" id="processing-section">
       <div class="processing">
         <div class="spinner"></div>
-        <p class="processing-text">Processing your image...</p>
+        <p style="color: #94a3b8;">Processing your image...</p>
         <p class="processing-step" id="processing-step"></p>
         <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
       </div>
@@ -132,7 +128,6 @@
     const filenameEl = document.getElementById('filename');
     const previewContainer = document.getElementById('preview-container');
     const previewImg = document.getElementById('preview-img');
-    const modeSelect = document.getElementById('mode-select');
     const processBtn = document.getElementById('process-btn');
     const errorMsg = document.getElementById('error-msg');
     const uploadSection = document.getElementById('upload-section');
@@ -159,14 +154,8 @@
     fileInput.addEventListener('change', () => { if (fileInput.files.length) handleFile(fileInput.files[0]); });
 
     function handleFile(file) {
-      if (!file.type.startsWith('image/')) {
-        showError('Please select an image file (JPG, PNG, WEBP, etc.)');
-        return;
-      }
-      if (file.size > 6 * 1024 * 1024) {
-        showError('Image must be under 6 MB (API Gateway payload limit)');
-        return;
-      }
+      if (!file.type.startsWith('image/')) return showError('Please select an image file.');
+      if (file.size > 10 * 1024 * 1024) return showError('Image must be under 10 MB.');
       selectedFile = file;
       filenameEl.textContent = file.name + ' (' + (file.size / 1024 / 1024).toFixed(1) + ' MB)';
       filenameEl.classList.remove('hidden');
@@ -175,33 +164,20 @@
       hideError();
 
       const reader = new FileReader();
-      reader.onload = e => {
-        previewImg.src = e.target.result;
-        previewContainer.classList.remove('hidden');
-      };
+      reader.onload = e => { previewImg.src = e.target.result; previewContainer.classList.remove('hidden'); };
       reader.readAsDataURL(file);
     }
 
-    // Processing animation steps
+    // Processing steps for animation
     const steps = [
-      'Reading image data...',
-      'Analyzing pixel values...',
+      'Requesting upload URL...',
+      'Uploading image to S3...',
+      'Waiting for Lambda to process...',
       'Applying filter transformation...',
-      'Encoding output image...',
-      'Uploading to S3...',
-      'Generating download URLs...',
-      'Almost done...',
+      'Writing results to S3...',
+      'Fetching processed images...',
     ];
 
-    async function simulateProgress() {
-      for (let i = 0; i < steps.length; i++) {
-        processingStep.textContent = steps[i];
-        progressFill.style.width = ((i + 1) / steps.length * 90) + '%';
-        await new Promise(r => setTimeout(r, 400 + Math.random() * 300));
-      }
-    }
-
-    // Process
     processBtn.addEventListener('click', async () => {
       if (!selectedFile) return;
       hideError();
@@ -210,30 +186,42 @@
       resultsSection.classList.add('hidden');
       progressFill.style.width = '0%';
 
-      const progressPromise = simulateProgress();
-
       try {
-        const base64 = await fileToBase64(selectedFile);
-        const mode = modeSelect.value;
-
-        const res = await fetch(API_URL + '/process', {
+        // Step 1: Get pre-signed upload URL
+        updateStep(0);
+        const mode = document.getElementById('mode-select').value;
+        const uploadRes = await fetch(API_URL + '/upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: base64, mode, filename: selectedFile.name }),
+          body: JSON.stringify({ filename: selectedFile.name, mode: mode }),
         });
+        if (!uploadRes.ok) throw new Error('Failed to get upload URL');
+        const uploadData = await uploadRes.json();
+        const jobId = uploadData.job_id;
 
-        await progressPromise;
+        // Step 2: Upload image directly to S3
+        updateStep(1);
+        const putRes = await fetch(uploadData.upload_url, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'image/*',
+            'x-amz-meta-processing-mode': mode,
+          },
+          body: selectedFile,
+        });
+        if (!putRes.ok) throw new Error('Failed to upload image to S3');
+
+        // Steps 3-5: Poll for results
+        updateStep(2);
+        const results = await pollForResults(jobId);
+
+        // Step 6: Show results
+        updateStep(5);
         progressFill.style.width = '100%';
         processingStep.textContent = 'Done!';
+        await sleep(500);
 
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || 'Processing failed');
-        }
-
-        const data = await res.json();
-        await new Promise(r => setTimeout(r, 500));
-        showResults(data);
+        showResults(results);
 
       } catch (err) {
         showError(err.message);
@@ -243,6 +231,33 @@
       }
     });
 
+    async function pollForResults(jobId) {
+      const maxAttempts = 60;
+      let step = 2;
+
+      for (let i = 0; i < maxAttempts; i++) {
+        await sleep(2000);
+
+        // Animate progress steps
+        if (i === 3) updateStep(3);
+        if (i === 6) updateStep(4);
+
+        const res = await fetch(API_URL + '/job/' + jobId);
+        if (!res.ok) throw new Error('Failed to check job status');
+        const data = await res.json();
+
+        if (data.status === 'completed' && data.results.length > 0) {
+          return data;
+        }
+      }
+      throw new Error('Processing timed out. Please try again.');
+    }
+
+    function updateStep(index) {
+      processingStep.textContent = steps[index] || '';
+      progressFill.style.width = ((index + 1) / steps.length * 90) + '%';
+    }
+
     function showResults(data) {
       resultsGrid.innerHTML = '';
       resultCount.textContent = data.results.length + ' image' + (data.results.length !== 1 ? 's' : '');
@@ -250,16 +265,15 @@
       data.results.forEach(r => {
         const card = document.createElement('div');
         card.className = 'result-card';
-        card.innerHTML = `
-          <img src="${r.url}" alt="${r.filter}" loading="lazy">
-          <div class="info">
-            <div class="filter-name">${r.filter}</div>
-            <div class="filter-size">${r.size_kb} KB</div>
-          </div>
-          <div class="actions">
-            <a href="${r.url}" target="_blank" class="btn-download">Download</a>
-          </div>
-        `;
+        card.innerHTML =
+          '<img src="' + r.url + '" alt="' + r.filter + '" loading="lazy">' +
+          '<div class="info">' +
+            '<div class="filter-name">' + r.filter + '</div>' +
+            '<div class="filter-size">' + r.size_kb + ' KB</div>' +
+          '</div>' +
+          '<div class="actions">' +
+            '<a href="' + r.url + '" target="_blank" class="btn-download">Download</a>' +
+          '</div>';
         card.querySelector('img').addEventListener('click', () => {
           modalImg.src = r.url;
           modal.classList.remove('hidden');
@@ -271,26 +285,11 @@
       resultsSection.classList.remove('hidden');
     }
 
-    // Modal
     modal.addEventListener('click', () => modal.classList.add('hidden'));
 
-    // Helpers
-    function fileToBase64(file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-    }
-
-    function showError(msg) {
-      errorMsg.textContent = msg;
-      errorMsg.classList.remove('hidden');
-    }
-    function hideError() {
-      errorMsg.classList.add('hidden');
-    }
+    function showError(msg) { errorMsg.textContent = msg; errorMsg.classList.remove('hidden'); }
+    function hideError() { errorMsg.classList.add('hidden'); }
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
   </script>
 </body>
 </html>

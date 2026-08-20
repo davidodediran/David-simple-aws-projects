@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Serverless Image Processor - S3 static site + Lambda (VPC) + API Gateway + S3 Gateway Endpoint
+Description: Serverless Image Processor - S3 static site, 2 Lambdas (API + Processor), API Gateway, S3 Gateway Endpoint
 
 Parameters:
   EnvironmentName:
@@ -11,9 +11,6 @@ Parameters:
     Type: Number
     Default: 3600
     Description: Pre-signed URL expiry in seconds (default 1 hour)
-
-Conditions:
-  AlwaysTrue: !Equals ['true', 'true']
 
 Resources:
 
@@ -79,21 +76,6 @@ Resources:
       VpcEndpointType: Gateway
       RouteTableIds:
         - !Ref PrivateRouteTable
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal: '*'
-            Action:
-              - s3:GetObject
-              - s3:PutObject
-              - s3:ListBucket
-              - s3:DeleteObject
-            Resource:
-              - !Sub arn:aws:s3:::${EnvironmentName}-output-${AWS::AccountId}
-              - !Sub arn:aws:s3:::${EnvironmentName}-output-${AWS::AccountId}/*
-              - !Sub arn:aws:s3:::${EnvironmentName}-website-${AWS::AccountId}
-              - !Sub arn:aws:s3:::${EnvironmentName}-website-${AWS::AccountId}/*
 
   # ==================== CLOUDWATCH LOGS VPC ENDPOINT ====================
 
@@ -115,12 +97,12 @@ Resources:
   LambdaSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Security group for image processor Lambda
+      GroupDescription: Security group for image processor Lambdas
       VpcId: !Ref VPC
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
-          Description: Allow all outbound (S3 via gateway endpoint)
+          Description: Allow all outbound
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName}-lambda-sg
@@ -153,12 +135,6 @@ Resources:
         BlockPublicPolicy: false
         IgnorePublicAcls: false
         RestrictPublicBuckets: false
-      CorsConfiguration:
-        CorsRules:
-          - AllowedHeaders: ['*']
-            AllowedMethods: [GET]
-            AllowedOrigins: ['*']
-            MaxAge: 3600
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName}-website
@@ -175,14 +151,19 @@ Resources:
             Action: s3:GetObject
             Resource: !Sub ${WebsiteBucket.Arn}/*
 
-  OutputBucket:
+  DataBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub ${EnvironmentName}-output-${AWS::AccountId}
+      BucketName: !Sub ${EnvironmentName}-data-${AWS::AccountId}
       LifecycleConfiguration:
         Rules:
-          - Id: ExpireProcessedImages
+          - Id: ExpireUploads
             Status: Enabled
+            Prefix: uploads/
+            ExpirationInDays: 1
+          - Id: ExpireProcessed
+            Status: Enabled
+            Prefix: processed/
             ExpirationInDays: 7
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
@@ -197,7 +178,7 @@ Resources:
             MaxAge: 3600
       Tags:
         - Key: Name
-          Value: !Sub ${EnvironmentName}-output
+          Value: !Sub ${EnvironmentName}-data
 
   # ==================== BUCKET CLEANUP (stack deletion) ====================
 
@@ -225,14 +206,14 @@ Resources:
                   - s3:ListBucketVersions
                 Resource:
                   - !GetAtt WebsiteBucket.Arn
-                  - !GetAtt OutputBucket.Arn
+                  - !GetAtt DataBucket.Arn
               - Effect: Allow
                 Action:
                   - s3:DeleteObject
                   - s3:DeleteObjectVersion
                 Resource:
                   - !Sub ${WebsiteBucket.Arn}/*
-                  - !Sub ${OutputBucket.Arn}/*
+                  - !Sub ${DataBucket.Arn}/*
 
   BucketCleanupFunction:
     Type: AWS::Lambda::Function
@@ -245,7 +226,6 @@ Resources:
       MemorySize: 128
       Code:
         ZipFile: |
-          import json
           import boto3
           import cfnresponse
 
@@ -267,8 +247,7 @@ Resources:
           def handler(event, context):
               try:
                   if event['RequestType'] == 'Delete':
-                      buckets = event['ResourceProperties']['BucketNames']
-                      for bucket in buckets:
+                      for bucket in event['ResourceProperties']['BucketNames']:
                           try:
                               empty_bucket(bucket)
                           except Exception as e:
@@ -284,9 +263,39 @@ Resources:
       ServiceToken: !GetAtt BucketCleanupFunction.Arn
       BucketNames:
         - !Ref WebsiteBucket
-        - !Ref OutputBucket
+        - !Ref DataBucket
 
-  # ==================== IAM ====================
+  # ==================== IAM ROLES ====================
+
+  ApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-api-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: UploadAndRead
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub ${DataBucket.Arn}/*
+              - Sid: ListData
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt DataBucket.Arn
 
   ProcessorRole:
     Type: AWS::IAM::Role
@@ -306,20 +315,45 @@ Resources:
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - Sid: ReadWriteOutputBucket
+              - Sid: ReadUploads
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub ${DataBucket.Arn}/uploads/*
+              - Sid: WriteProcessed
                 Effect: Allow
                 Action:
                   - s3:PutObject
-                  - s3:GetObject
-                  - s3:DeleteObject
-                Resource: !Sub ${OutputBucket.Arn}/*
-              - Sid: ListOutputBucket
-                Effect: Allow
-                Action:
-                  - s3:ListBucket
-                Resource: !GetAtt OutputBucket.Arn
+                Resource: !Sub ${DataBucket.Arn}/processed/*
 
-  # ==================== LAMBDA FUNCTION ====================
+  # ==================== LAMBDA FUNCTIONS ====================
+
+  ApiFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${EnvironmentName}-api
+      Runtime: python3.12
+      Handler: handler.handler
+      Role: !GetAtt ApiRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {"statusCode": 200, "body": "Deploy API code"}
+      Environment:
+        Variables:
+          DATA_BUCKET: !Ref DataBucket
+          PRESIGN_EXPIRY_SECONDS: !Ref PresignExpirySeconds
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-api
 
   ProcessorFunction:
     Type: AWS::Lambda::Function
@@ -328,7 +362,7 @@ Resources:
       Runtime: python3.12
       Handler: handler.handler
       Role: !GetAtt ProcessorRole.Arn
-      Timeout: 60
+      Timeout: 120
       MemorySize: 1024
       VpcConfig:
         SecurityGroupIds:
@@ -342,11 +376,105 @@ Resources:
               return {"statusCode": 200, "body": "Deploy processor code"}
       Environment:
         Variables:
-          OUTPUT_BUCKET: !Ref OutputBucket
-          PRESIGN_EXPIRY_SECONDS: !Ref PresignExpirySeconds
+          DATA_BUCKET: !Ref DataBucket
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName}-processor
+
+  ProcessorS3Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ProcessorFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !GetAtt DataBucket.Arn
+      SourceAccount: !Ref AWS::AccountId
+
+  # ==================== S3 EVENT NOTIFICATION (Custom Resource) ====================
+
+  NotificationHelperRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-notification-helper-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3Notification
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutBucketNotification
+                  - s3:GetBucketNotification
+                Resource: !GetAtt DataBucket.Arn
+
+  NotificationHelperFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${EnvironmentName}-notification-helper
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt NotificationHelperRole.Arn
+      Timeout: 60
+      MemorySize: 128
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+
+          s3 = boto3.client('s3')
+
+          def handler(event, context):
+              try:
+                  bucket = event['ResourceProperties']['Bucket']
+                  lambda_arn = event['ResourceProperties']['LambdaArn']
+                  prefix = event['ResourceProperties']['Prefix']
+
+                  if event['RequestType'] in ['Create', 'Update']:
+                      s3.put_bucket_notification_configuration(
+                          Bucket=bucket,
+                          NotificationConfiguration={
+                              'LambdaFunctionConfigurations': [{
+                                  'LambdaFunctionArn': lambda_arn,
+                                  'Events': ['s3:ObjectCreated:*'],
+                                  'Filter': {
+                                      'Key': {
+                                          'FilterRules': [{
+                                              'Name': 'prefix',
+                                              'Value': prefix,
+                                          }]
+                                      }
+                                  }
+                              }]
+                          }
+                      )
+                  elif event['RequestType'] == 'Delete':
+                      s3.put_bucket_notification_configuration(
+                          Bucket=bucket,
+                          NotificationConfiguration={}
+                      )
+
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  print(f'Error: {e}')
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+
+  S3NotificationConfig:
+    Type: Custom::S3Notification
+    DependsOn: ProcessorS3Permission
+    Properties:
+      ServiceToken: !GetAtt NotificationHelperFunction.Arn
+      Bucket: !Ref DataBucket
+      LambdaArn: !GetAtt ProcessorFunction.Arn
+      Prefix: uploads/
 
   # ==================== API GATEWAY ====================
 
@@ -364,7 +492,6 @@ Resources:
           - OPTIONS
         AllowHeaders:
           - Content-Type
-          - Authorization
         MaxAge: 3600
 
   HttpApiIntegration:
@@ -372,21 +499,21 @@ Resources:
     Properties:
       ApiId: !Ref HttpApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !GetAtt ProcessorFunction.Arn
+      IntegrationUri: !GetAtt ApiFunction.Arn
       PayloadFormatVersion: '2.0'
 
-  HttpApiRouteProcess:
+  HttpApiRouteUpload:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref HttpApi
-      RouteKey: POST /process
+      RouteKey: POST /upload
       Target: !Sub integrations/${HttpApiIntegration}
 
-  HttpApiRouteResults:
+  HttpApiRouteJob:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref HttpApi
-      RouteKey: GET /results/{proxy+}
+      RouteKey: GET /job/{jobId}
       Target: !Sub integrations/${HttpApiIntegration}
 
   HttpApiStage:
@@ -399,7 +526,7 @@ Resources:
   LambdaApiPermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref ProcessorFunction
+      FunctionName: !Ref ApiFunction
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*
@@ -417,12 +544,16 @@ Outputs:
     Description: Static website URL
     Value: !GetAtt WebsiteBucket.WebsiteURL
 
-  OutputBucketName:
-    Description: S3 output bucket name
-    Value: !Ref OutputBucket
+  DataBucketName:
+    Description: S3 data bucket name (uploads + processed)
+    Value: !Ref DataBucket
+
+  ApiFunctionName:
+    Description: API Lambda function name
+    Value: !Ref ApiFunction
 
   ProcessorFunctionName:
-    Description: Lambda function name
+    Description: Processor Lambda function name
     Value: !Ref ProcessorFunction
 
   VpcId:
