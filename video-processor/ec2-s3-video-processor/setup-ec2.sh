@@ -10,7 +10,15 @@ APP_USER="videoprocessor"
 echo "=== Installing system dependencies ==="
 if command -v dnf &>/dev/null; then
     sudo dnf update -y
-    sudo dnf install -y python3.11 python3.11-pip ffmpeg git
+    sudo dnf install -y python3.11 python3.11-pip git tar xz
+    # ffmpeg is not in AL2023 default repos; install static build
+    if ! command -v ffmpeg &>/dev/null; then
+        cd /tmp
+        curl -LO https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+        tar xf ffmpeg-release-amd64-static.tar.xz
+        sudo cp ffmpeg-*-static/ffmpeg ffmpeg-*-static/ffprobe /usr/local/bin/
+        rm -rf ffmpeg-*-static*
+    fi
 elif command -v apt-get &>/dev/null; then
     sudo apt-get update -y
     sudo apt-get install -y python3 python3-pip python3-venv ffmpeg git
