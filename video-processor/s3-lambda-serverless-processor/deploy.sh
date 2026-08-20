@@ -155,7 +155,12 @@ echo "=== [5/5] Deploying frontend ==="
 
 # Inject API URL into frontend and upload
 cd "$SCRIPT_DIR/frontend"
-sed "s|window.CONFIG_API_URL || ''|'${API_URL}'|g" index.html > /tmp/index-deployed.html
+python3 -c "
+import sys
+content = open('index.html').read()
+content = content.replace(\"window.CONFIG_API_URL || ''\", \"'${API_URL}'\")
+open('/tmp/index-deployed.html', 'w').write(content)
+"
 aws s3 cp /tmp/index-deployed.html "s3://$WEBSITE_BUCKET/index.html" \
   --content-type "text/html" \
   --region "$REGION"
