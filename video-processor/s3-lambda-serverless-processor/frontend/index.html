@@ -472,21 +472,19 @@ async function startUpload() {
     statusMsg.textContent = 'Uploading video...';
     progressFill.style.width = '20%';
 
-    const xhr = new XMLHttpRequest();
-    xhr.open('PUT', data.upload_url);
-
-    xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable) {
-        const pct = 20 + (e.loaded / e.total) * 60;
-        progressFill.style.width = pct + '%';
-      }
+    console.log('Upload URL:', data.upload_url);
+    const putResp = await fetch(data.upload_url, {
+      method: 'PUT',
+      body: selectedFile,
     });
 
-    await new Promise((resolve, reject) => {
-      xhr.onload = () => xhr.status < 400 ? resolve() : reject(new Error('Upload failed'));
-      xhr.onerror = () => reject(new Error('Upload failed'));
-      xhr.send(selectedFile);
-    });
+    if (!putResp.ok) {
+      const errText = await putResp.text();
+      console.error('S3 PUT failed:', putResp.status, errText);
+      throw new Error('Upload failed: ' + putResp.status);
+    }
+
+    progressFill.style.width = '80%';
 
     progressFill.style.width = '85%';
     statusMsg.textContent = 'Processing... Lambda is working on your video.';
