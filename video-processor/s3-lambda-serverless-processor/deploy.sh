@@ -73,6 +73,9 @@ else
     --output text)
 
   echo "  Published layer: $FFMPEG_LAYER_ARN"
+
+  echo "  Waiting for layer to propagate..."
+  sleep 5
 fi
 
 rm -rf "$LAYER_DIR"
@@ -129,16 +132,28 @@ aws lambda wait function-updated \
   --function-name "$PROCESSOR_NAME" \
   --region "$REGION"
 
-# Attach FFmpeg layer to processor
+# Attach FFmpeg layer to processor (retry up to 3 times for propagation delay)
 echo "  Attaching FFmpeg layer to processor..."
-aws lambda update-function-configuration \
-  --function-name "$PROCESSOR_NAME" \
-  --layers "$FFMPEG_LAYER_ARN" \
-  --region "$REGION" \
-  --no-cli-pager \
-  --output text \
-  --query 'FunctionName'
-echo "  FFmpeg layer attached."
+for attempt in 1 2 3; do
+  if aws lambda update-function-configuration \
+    --function-name "$PROCESSOR_NAME" \
+    --layers "$FFMPEG_LAYER_ARN" \
+    --region "$REGION" \
+    --no-cli-pager \
+    --output text \
+    --query 'FunctionName' 2>/dev/null; then
+    echo "  FFmpeg layer attached."
+    break
+  else
+    if [ "$attempt" -lt 3 ]; then
+      echo "  Layer not yet available, retrying in 10s... (attempt $attempt/3)"
+      sleep 10
+    else
+      echo "  ERROR: Failed to attach layer after 3 attempts."
+      exit 1
+    fi
+  fi
+done
 
 # Package and deploy API Lambda
 cd "$SCRIPT_DIR/lambda/api"
