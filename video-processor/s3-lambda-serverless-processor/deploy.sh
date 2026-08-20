@@ -48,11 +48,24 @@ else
   zip -r9 "$LAYER_DIR/ffmpeg-layer.zip" bin/ -q
   cd "$SCRIPT_DIR"
 
-  echo "  Publishing Lambda layer..."
+  # Upload to S3 first (direct publish has a 70MB limit)
+  ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+  LAYER_BUCKET="${STACK_NAME}-layers-${ACCOUNT_ID}"
+
+  echo "  Creating layer bucket (if needed)..."
+  if ! aws s3 ls "s3://$LAYER_BUCKET" --region "$REGION" 2>/dev/null; then
+    aws s3 mb "s3://$LAYER_BUCKET" --region "$REGION"
+  fi
+
+  echo "  Uploading layer zip to S3..."
+  aws s3 cp "$LAYER_DIR/ffmpeg-layer.zip" "s3://$LAYER_BUCKET/ffmpeg-layer.zip" \
+    --region "$REGION"
+
+  echo "  Publishing Lambda layer from S3..."
   FFMPEG_LAYER_ARN=$(aws lambda publish-layer-version \
     --layer-name "$LAYER_NAME" \
     --description "FFmpeg static build for video processing" \
-    --zip-file "fileb://$LAYER_DIR/ffmpeg-layer.zip" \
+    --content "S3Bucket=$LAYER_BUCKET,S3Key=ffmpeg-layer.zip" \
     --compatible-runtimes python3.12 python3.11 python3.10 \
     --compatible-architectures x86_64 \
     --region "$REGION" \
